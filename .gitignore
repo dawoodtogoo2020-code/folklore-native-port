@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.leaf-test-*/
+private/
+game-data/
+build/
+*.elf
+*.iso
+*.bin
+*.BIN
+*.sprx
+*.self
+*.pkg
+*.exe
+*.o
+*.obj

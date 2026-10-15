@@ -1,0 +1,22 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Folklore",
+  "system": "PS3",
+  "type": "recomp",
+  "original": {
+    "region": "USA",
+    "revision": "01.00",
+    "serial": "BCUS98147"
+  },
+  "project": "Folklore Native Port",
+  "status": "exploring",
+  "toolchain": "Ps3recomp",
+  "approach": "Game-specific static recompilation research with strict, independently checked PPU function tests.",
+  "maintainers": [
+    {
+      "name": "dawoodtogoo2020-code",
+      "link": "https://github.com/dawoodtogoo2020-code"
+    }
+  ],
+  "notes": "Early feasibility work. Two short PPU functions passed native Windows and Linux/WSL register tests. No native title/menu, gameplay or public game build has been verified. Windows, Linux/Steam Deck and Android are planned targets. Modern rendering enhancements are planned, not implemented."
+}

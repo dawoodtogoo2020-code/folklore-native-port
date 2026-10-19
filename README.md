@@ -1,12 +1,30 @@
 # Folklore Native Port
 
-Early feasibility research toward a faithful native port of Folklore for PlayStation 3. The project currently evaluates game-specific static recompilation with [PS3Recomp](https://github.com/sp00nznet/ps3recomp), alongside strict instruction and function validation.
+An experimental native port of Folklore for PlayStation 3, using game-specific static recompilation with [PS3Recomp](https://github.com/sp00nznet/ps3recomp).
 
-**Status: Exploring.** Native game startup, menus and gameplay have not been verified. There is no playable release.
+**Development status, 20 October 2026:** private Windows development builds have reached menus and gameplay, loaded saves, and exercised ultrawide rendering. The public repository below remains an earlier research/tools snapshot. It does not yet contain the current playable runtime or a complete player-facing builder.
 
-This initial public-source snapshot contains the bounded PPU validation harness and independent synthetic tests. Two short functions from the selected BCUS98147 revision passed native Windows and Linux/WSL tests against a small independent instruction reference, with 1,024 register cases per function and host. These tests establish narrow register agreement. Game traces, hardware equivalence, complete calling contexts, graphics, audio, saves and campaign behavior remain unvalidated. ARM64 compilation has been exercised; ARM64 execution is pending.
+## Download and play
 
-Planned native targets are Windows x86-64, Linux x86-64 including Steam Deck, and Android ARM64. Planned optional enhancements include 4K, ultrawide, higher frame rates, DLSS/FSR, high-quality ambient occlusion, anti-aliasing, anisotropic filtering up to 16x, ray/path tracing, and later texture upscaling. Feasibility and performance require separate validation on each target.
+**There is currently no downloadable playable release.** GitHub's Code > Download ZIP downloads the research sources, not a game you can launch. See [Releases](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases) for published packages when available.
+
+The intended player package will build locally from the player's own compatible Folklore USA (BCUS98147, disc 1.00) backup and decrypted executable. It must not bundle game assets, firmware, keys, or generated game code. The current local build flow still depends on developer metadata, manifests, SDK history and toolchain paths; a clean-machine setup/build/play flow has not been validated. A ready-to-play download cannot be offered yet.
+
+## Current development features and limitations
+
+These describe local development builds, not features included in this public source snapshot. Different candidates contain different features; no single fully validated release combines all of them.
+
+- **Ultrawide:** the existing Windows launcher offers 3440x1440 fullscreen with output camera aspect and HUD scaling. Menu/tutorial transitions, HUD particle overflow and broader scene coverage still need work.
+- **DLSS Super Resolution:** gameplay evaluations and presentation have been exercised in an experimental graphics candidate. **DLSS performance is currently not optimal.** One RTX 5080 test at 2560x1440 output recorded about 18.25 FPS with hybrid PT plus DLSS Quality, versus about 26.27 FPS for the PT-only test. These are separate scene measurements, not a controlled universal comparison. The tested DLSS development runtime also shows a watermark. Frame generation is not accepted gameplay functionality.
+- **Path tracing:** improvements are ongoing. The current experiment uses rasterized primary visibility with traced shadows, bounces and reflections. Many secondary materials remain generic, temporal reprojection is incomplete, and visible water reflections are unproven. This is hybrid rendering, not complete source-faithful full path tracing.
+- **Performance and gameplay:** stable timing-correct 60 FPS is not established. Audio/music hitches, coat/hair physics, controller soul-capture motion and some AO/transparency transitions remain open. Physical controller acceptance and complete campaign coverage are pending.
+- **Platforms:** Windows is the main development target. Linux/Steam Deck require further validation; Android work is parked.
+
+The immediate release work is a self-contained owned-copy builder, dependency/license review, clean-machine installation and launch validation, and broader gameplay/save testing. Current executables remain private because they include locally generated game-derived code.
+
+## Public source snapshot
+
+The public snapshot contains a bounded PPU validation harness and independent synthetic tests. Two short functions from the selected BCUS98147 revision passed native Windows and Linux/WSL tests against an independent instruction reference, with 1,024 register cases per function and host. These narrow checks do not establish full game correctness, hardware equivalence, campaign coverage or other-platform gameplay.
 
 ## Validation tools
 

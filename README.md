@@ -6,6 +6,8 @@ An experimental native port of Folklore for PlayStation 3, using game-specific s
 
 ## Download and play
 
+**New here? Read the short [installation and launcher guide](INSTALL.md) first.**
+
 **There is currently no downloadable playable release.** GitHub's Code > Download ZIP downloads the research sources, not a game you can launch. See [Releases](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases) for published packages when available.
 
 The intended player package will build locally from the player's own compatible Folklore USA (BCUS98147, disc 1.00) backup and decrypted executable. It must not bundle game assets, firmware, keys, or generated game code. The current local build flow still depends on developer metadata, manifests, SDK history and toolchain paths; a clean-machine setup/build/play flow has not been validated. A ready-to-play download cannot be offered yet.
@@ -18,7 +20,7 @@ These describe local development builds, not features included in this public so
 - **DLSS Super Resolution:** gameplay evaluations and presentation have been exercised in an experimental graphics candidate. **DLSS performance is currently not optimal.** One RTX 5080 test at 2560x1440 output recorded about 18.25 FPS with hybrid PT plus DLSS Quality, versus about 26.27 FPS for the PT-only test. These are separate scene measurements, not a controlled universal comparison. The tested DLSS development runtime also shows a watermark. Frame generation is not accepted gameplay functionality.
 - **Path tracing:** improvements are ongoing. The current experiment uses rasterized primary visibility with traced shadows, bounces and reflections. Many secondary materials remain generic, temporal reprojection is incomplete, and visible water reflections are unproven. This is hybrid rendering, not complete source-faithful full path tracing.
 - **Performance and gameplay:** stable timing-correct 60 FPS is not established. Audio/music hitches, coat/hair physics, controller soul-capture motion and some AO/transparency transitions remain open. Physical controller acceptance and complete campaign coverage are pending.
-- **Platforms:** Windows is the main development target. Linux/Steam Deck require further validation; Android work is parked.
+- **Platforms:** Windows is the main development target. Linux/Steam Deck require further validation; Android remains a planned target with implementation work parked. macOS is a longer-term goal. No public playable package is available for any platform yet.
 
 The immediate release work is a self-contained owned-copy builder, dependency/license review, clean-machine installation and launch validation, and broader gameplay/save testing. Current executables remain private because they include locally generated game-derived code.
 

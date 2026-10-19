@@ -27,3 +27,11 @@ python scripts/leaf_probe.py --help
 Synthetic tests require no game files, compiler or upstream checkout. Probe runs require the selected compatible local inputs, PS3Recomp tools, Git and a suitable host C compiler. Test results from Windows/WSL do not establish Steam Deck or Android gameplay.
 
 This source snapshot contains no game assets, firmware, keys, generated game code, private paths, raw traces or downloaded game packages.
+
+## License and collaboration
+
+The original material identified in [LICENSE](LICENSE) uses a custom personal-use license. You may download, inspect, build, run and privately modify it for personal, noncommercial use. Reusing its code in another project, redistributing it or using it commercially requires the maintainer's prior written permission, subject to the license's GitHub, third-party and legal exceptions. This is source-available software, not open-source software.
+
+Collaboration is welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to request permission or propose a contribution. Private code and unpublished information require separately approved access. Public files are not confidential, and GitHub's viewing and forking rights remain intact.
+
+These terms cover only independently owned material within the license's stated scope. They do not replace third-party licenses, restrict rights in GPL-covered runtime code or authorize distribution of game or firmware content. Any future builder or runtime release must retain its applicable component licenses and meet their source-distribution requirements.

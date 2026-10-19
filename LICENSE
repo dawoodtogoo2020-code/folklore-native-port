@@ -1,0 +1,89 @@
+Folklore Native Port Personal Use and Permission License
+Version 1.0, 19 October 2026
+
+Copyright (c) 2026 dawoodtogoo2020-code, to the extent of ownership.
+All rights reserved except as expressly granted below.
+
+1. Scope
+
+This license applies only to original material owned by the maintainer in
+README.md, .recomp.json, scripts/leaf_probe.py, tests/test_leaf_probe.py and
+tests/test_leaf_pipeline.py, and to future original files explicitly marked
+as covered by this license (the "Material"). A separate license or notice
+on a file takes precedence for that file. This is a custom, source-available
+license, not an open-source license.
+
+2. Personal use
+
+You may download, inspect, make local copies of, compile, run and privately
+modify the Material for your own personal, noncommercial use, including
+building on your own PC. Keep this license and applicable attribution with
+copies. This permission does not grant rights to game or firmware content,
+or establish that any particular game build may lawfully be distributed.
+
+3. Uses requiring written permission
+
+Except for section 2, section 4, rights under applicable third-party
+licenses, or rights that applicable law grants independently, you must
+obtain the maintainer's prior written permission to:
+
+* reuse or incorporate the Material or its code in another project;
+* redistribute the Material, modified versions, or binaries containing it;
+* publish modified versions or offer them as a hosted service; or
+* use the Material commercially, sell it, sublicense it, or monetize it.
+
+Attribution alone is not permission. Silence, an unanswered request, or
+approval of a different use is not permission. Any permission applies only
+to the material and uses identified in that written grant.
+
+4. GitHub and collaboration
+
+Nothing here limits rights granted under GitHub's Terms of Service,
+including viewing and forking public content through GitHub's permitted
+functionality. A public repository is not confidential. A GitHub fork does
+not by itself grant additional reuse or redistribution rights beyond those
+terms and this license.
+
+Bug reports, suggestions and collaboration proposals are welcome. Request
+permission before submitting code changes or sharing modified versions;
+the maintainer will agree the contribution scope and licensing in writing.
+See CONTRIBUTING.md for the request route. Private source, unpublished
+technical documents and private access are provided only by separate
+agreement; this license creates no entitlement to receive them.
+
+5. Third-party rights and existing licenses
+
+This license does not cover or relicense Folklore game code, assets,
+firmware, keys, generated code derived from those inputs, third-party
+software, or material the maintainer does not own. Those rights remain
+with their respective holders. No trademark rights or official endorsement
+are granted.
+
+In particular, GPL-covered runtime code and works that must be distributed
+under the GPL remain subject to the applicable GPL terms. This license
+must not be used to impose additional restrictions on those rights or to
+withhold corresponding source required by an applicable license. Other
+third-party license notices and obligations must also be preserved.
+
+This license does not revoke rights already granted for earlier versions
+under another license. Review the licenses and provenance of every included
+component before distributing a future builder, runtime or combined work;
+this notice is not permission to combine incompatible licenses.
+
+6. Warranty and liability
+
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE MATERIAL IS PROVIDED "AS IS",
+WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. THE COPYRIGHT HOLDERS
+ARE NOT LIABLE FOR CLAIMS, DAMAGES OR OTHER LIABILITY ARISING FROM THE
+MATERIAL OR ITS USE. RIGHTS AND LIABILITIES THAT CANNOT LAWFULLY BE EXCLUDED
+ARE UNAFFECTED.
+
+7. Permission requests
+
+Contact the maintainer through a permission-request issue at:
+https://github.com/dawoodtogoo2020-code/folklore-native-port/issues/new
+
+Identify the files or commit, intended use, proposed changes, distribution
+and any commercial use. Do not post confidential information in an issue.
+Ask the maintainer to arrange a private channel if needed.

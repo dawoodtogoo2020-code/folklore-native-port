@@ -9,14 +9,33 @@
     "serial": "BCUS98147"
   },
   "project": "Folklore Native Port",
-  "status": "exploring",
+  "status": "in-progress",
+  "targets": [
+    "Windows"
+  ],
   "toolchain": "Ps3recomp",
-  "approach": "Game-specific static recompilation research with strict, independently checked PPU function tests.",
+  "approach": "Game-specific static recompilation with strict, independently checked PPU function tests.",
   "maintainers": [
     {
       "name": "dawoodtogoo2020-code",
       "link": "https://github.com/dawoodtogoo2020-code"
     }
   ],
-  "notes": "Early feasibility work. Two short PPU functions passed native Windows and Linux/WSL register tests. No native title/menu, gameplay or public game build has been verified. Windows, Linux/Steam Deck and Android are planned targets. Modern rendering enhancements are planned, not implemented."
+  "links": [
+    {
+      "label": "Install and launcher guide",
+      "url": "https://github.com/dawoodtogoo2020-code/folklore-native-port/blob/main/INSTALL.md"
+    },
+    {
+      "label": "Open engine issues",
+      "url": "https://github.com/dawoodtogoo2020-code/folklore-native-port/blob/main/docs/OPEN_ISSUES.md"
+    }
+  ],
+  "help": [
+    "60 FPS garment and hair motion",
+    "Audio continuity",
+    "Path tracing and DLSS performance",
+    "Clean-machine player builder testing"
+  ],
+  "notes": "Private Windows development builds reach menus and gameplay, load saves, and have exercised ultrawide, experimental 60 FPS, hybrid path tracing and DLSS. No public playable build exists; this repository holds research and validation tools. Open work: 60 FPS garment and hair motion, audio continuity, PT/DLSS performance and a clean-machine player builder. Linux/Steam Deck and Android are planned targets."
 }

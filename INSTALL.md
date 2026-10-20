@@ -1,8 +1,10 @@
 # Can I install and play it yet?
 
-**There is no public playable download yet.** The video shows a private Windows development build. This repository currently contains research and validation tools. **Code > Download ZIP will not give you the launcher or a playable game.**
+**Short answer: not yet.** When a player package is ready, it will appear on the [Releases page](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases) with step-by-step instructions.
 
-The current download status is always on the [Releases page](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases). It currently has no player package. Please do not follow the validation commands in the README as game-installation instructions.
+The video shows a private Windows development build. This repository currently contains research and validation tools. **Code > Download ZIP will not give you the launcher or a playable game.**
+
+Please do not follow the validation commands in the README as game-installation instructions.
 
 ## What you will need
 
@@ -30,6 +32,6 @@ The development builder still needs SDK history, generation metadata, acceptance
 
 Windows is the current gameplay development target. Linux and Android are planned targets; macOS is a longer-term goal. Public playable packages are not available for these platforms yet.
 
-Ultrawide, experimental 60 FPS, hybrid path tracing and DLSS have been exercised in different development configurations. DLSS is currently slower in the tested graphics candidate. Audio continuity, garment physics, full campaign coverage, ultrawide transitions and path-tracing fidelity still need work. The showcase uses **PT off and DLSS off**; do not treat it as a path-tracing benchmark or a guarantee of stable 60 FPS.
+Ultrawide, experimental 60 FPS, hybrid path tracing and DLSS have been exercised in different development configurations. DLSS is currently slower in the tested graphics candidate. Audio continuity, garment physics, full campaign coverage, ultrawide transitions and path-tracing fidelity still need work. See [Open engine issues](docs/OPEN_ISSUES.md) for the current fix plans. The showcase uses **PT off and DLSS off**; do not treat it as a path-tracing benchmark or a guarantee of stable 60 FPS.
 
 For updates, follow [the repository](https://github.com/dawoodtogoo2020-code/folklore-native-port). Report reproducible issues through [GitHub Issues](https://github.com/dawoodtogoo2020-code/folklore-native-port/issues).

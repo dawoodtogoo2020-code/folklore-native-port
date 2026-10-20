@@ -2,74 +2,62 @@
 
 An experimental native port of Folklore for PlayStation 3, using game-specific static recompilation with [PS3Recomp](https://github.com/sp00nznet/ps3recomp).
 
-> **Want to play?** There is no public playable download yet. Start with the **[install and launcher guide](INSTALL.md)**, and watch **[Releases](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases)** for the first player package.
+**The current download is a source preview, not a playable game installer.** It now includes current renderer and motion-control source, launcher source, and tools to generate texture packs from your own game archives. A complete public owner-local game builder is still pending.
 
 | I want to | Go here |
 | --- | --- |
-| Find out if I can play yet | [Install and launcher guide](INSTALL.md) |
-| Download a player package | [Releases](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases) (none published yet) |
-| See known bugs and fix plans | [Open engine issues](docs/OPEN_ISSUES.md) |
-| Report a bug | [GitHub Issues](https://github.com/dawoodtogoo2020-code/folklore-native-port/issues) |
-| Run the research tools | [Validation tools](#validation-tools) |
+| Download the source preview | [GitHub Releases](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases) |
+| Find out whether I can install and play | [Installation status](INSTALL.md) |
+| Generate textures from my own copy | [Texture tool instructions](tools/textures/README.md) |
+| Review changes and validation | [Source preview notes](docs/SOURCE_PREVIEW.md) |
+| Read about motion-control support | [Motion controls](docs/MOTION_CONTROLS.md) |
+| See known engine problems | [Open issues and fix plans](docs/OPEN_ISSUES.md) |
+| Report a reproducible problem | [GitHub Issues](https://github.com/dawoodtogoo2020-code/folklore-native-port/issues) |
 
-**Development status, 20 October 2026:** private Windows development builds have reached menus and gameplay, loaded saves, and exercised ultrawide rendering. The public repository below remains an earlier research/tools snapshot. It does not yet contain the current playable runtime or a complete player-facing builder.
+## What is included
 
-## Download and play
+- `engine/`: the current PS3Recomp development fork, with Vulkan/hybrid rendering, DLSS diagnostics and projection fixes, texture replacement loading and motion-control backends.
+- `client/`: authored native boot integration, launcher, platform and development build tools.
+- `tools/textures/`: archive extraction, heuristic classification, 2x/4x pack generation, resumable verification and synthetic tests. No game artwork is bundled.
+- `scripts/` and `tests/`: the earlier bounded PPU probe and frame-rate constant scanner, with independent synthetic tests.
 
-**There is currently no downloadable playable release.** GitHub's Code > Download ZIP downloads the research sources, not a game you can launch. See [Releases](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases) for published packages when available.
+[The source manifest](docs/source-export.json) identifies exported revisions and file hashes. Private histories, captured game payloads and generated game executables are excluded. See [third-party notices](THIRD_PARTY_NOTICES.md) for component licensing.
 
-The intended player package will build locally from the player's own compatible Folklore USA (BCUS98147, disc 1.00) backup and decrypted executable. It must not bundle game assets, firmware, keys, or generated game code. The current local build flow still depends on developer metadata, manifests, SDK history and toolchain paths; a clean-machine setup/build/play flow has not been validated. A ready-to-play download cannot be offered yet.
+## What works and what is pending
 
-## Current development features and limitations
+Private Windows development builds have reached menus and gameplay, loaded saves, exercised ultrawide presentation and used locally generated texture packs. These observations do not establish a clean public installation or full campaign correctness.
 
-These describe local development builds, not features included in this public source snapshot. Different candidates contain different features; no single fully validated release combines all of them.
+The source adds physical-sensor paths for SDL controllers, original DS3/SXS and GameSir, plus an optional stick-flick mapping and Nintendo face-button positioning. Mocked tests pass; physical soul-capture acceptance remains open.
 
-- **Ultrawide:** the existing Windows launcher offers 3440x1440 fullscreen with output camera aspect and HUD scaling. Menu/tutorial transitions, HUD particle overflow and broader scene coverage still need work.
-- **DLSS Super Resolution:** gameplay evaluations and presentation have been exercised in an experimental graphics candidate. **DLSS performance is currently not optimal.** One RTX 5080 test at 2560x1440 output recorded about 18.25 FPS with hybrid PT plus DLSS Quality, versus about 26.27 FPS for the PT-only test. These are separate scene measurements, not a controlled universal comparison. The tested DLSS development runtime also shows a watermark. Frame generation is not accepted gameplay functionality.
-- **Path tracing:** improvements are ongoing. The current experiment uses rasterized primary visibility with traced shadows, bounces and reflections. Many secondary materials remain generic, temporal reprojection is incomplete, and visible water reflections are unproven. This is hybrid rendering, not complete source-faithful full path tracing.
-- **Performance and gameplay:** stable timing-correct 60 FPS is not established. Audio/music hitches, coat/tie/hair motion at 60 FPS, controller soul-capture motion and some AO/transparency transitions remain open. Physical controller acceptance and complete campaign coverage are pending. Likely causes and fix plans for garments, audio and PT/DLSS performance are in [Open engine issues](docs/OPEN_ISSUES.md).
-- **Platforms:** Windows is the main development target. Linux/Steam Deck require further validation; Android remains a planned target with implementation work parked. macOS is a longer-term goal. No public playable package is available for any platform yet.
+The isolated renderer changes pass offline compilation, shader validation and synthetic motion tests. They have not been accepted through matched gameplay captures. DLSS jitter/performance, HDR/exposure, asynchronous frame alignment, AO/transparency, audio continuity and 60 FPS garment physics remain active work. Hybrid lighting retains rasterized primary shading and simplified secondary materials; it is not complete source-faithful path tracing. Frame generation is not accepted gameplay functionality.
 
-The immediate release work is a self-contained owned-copy builder, dependency/license review, clean-machine installation and launch validation, and broader gameplay/save testing. Current executables remain private because they include locally generated game-derived code.
-
-## Public source snapshot
-
-The public snapshot contains a bounded PPU validation harness, a frame-rate constant scanner and independent synthetic tests. Two short functions from the selected BCUS98147 revision passed native Windows and Linux/WSL tests against an independent instruction reference, with 1,024 register cases per function and host. These narrow checks do not establish full game correctness, hardware equivalence, campaign coverage or other-platform gameplay.
+Windows is the development target. Linux/Steam Deck, Android and macOS do not have validated public player packages. Do not infer gameplay or platform support from source presence or a passing CPU test.
 
 ## Validation tools
 
-The harness accepts an explicitly selected local executable and upstream tool checkout. It restricts the experiment to a small whitelist of straight-line integer register operations. Unsupported instructions, unresolved generated bodies, calls, fallthrough and comparison failures produce errors. Success receipts record input/source/executable hashes, compiler details and upstream identity.
-
-Run synthetic tests with Python 3:
+The small public probe tests require Python 3 and no game files:
 
 ```sh
-python -m unittest discover -s tests -v
+python -B -m unittest discover -s tests
 ```
 
-Inspect the probe's supported arguments with:
+Texture tests require Pillow and use synthetic images/archives:
 
 ```sh
-python scripts/leaf_probe.py --help
+python -B -m unittest discover -s tools/textures
 ```
 
-Synthetic tests require no game files, compiler or upstream checkout. Probe runs require the selected compatible local inputs, PS3Recomp tools, Git and a suitable host C compiler. Test results from Windows/WSL do not establish Steam Deck or Android gameplay.
-
-### Frame-rate constant scanner
-
-`scripts/frame_constants.py` is a read-only scan of your own decrypted `EBOOT.elf`. It lists 30/60 FPS timing constants, such as 1/30 second, and the code that loads them, grouped by estimated recompiled function name. These are leads for code that misbehaves at 60 FPS, such as garment and hair motion, audio pacing or motion controls. They are not proof.
+DLSS motion analyzer and projection tests:
 
 ```sh
-python scripts/frame_constants.py --elf path/to/EBOOT.elf
+python -B -m unittest discover -s engine/tests -p test_analyze_dlss_motion.py
+python -B engine/tests/test_dlss_projection.py --cc clang++ --out build/projection-test
 ```
 
-Add `--json` for machine-readable output. See [Open engine issues](docs/OPEN_ISSUES.md#finding-the-code) for how to use the results.
-
-This source snapshot contains no game assets, firmware, keys, generated game code, private paths, raw traces or downloaded game packages.
+`scripts/frame_constants.py --elf path/to/EBOOT.elf` scans an owner's decrypted executable for timing-constant leads. It does not change the game or prove which subsystem controls physics. `scripts/leaf_probe.py --help` describes the bounded PPU probe. Neither command installs the port.
 
 ## License and collaboration
 
-The original material identified in [LICENSE](LICENSE) uses a custom personal-use license. You may download, inspect, build, run and privately modify it for personal, noncommercial use. Reusing its code in another project, redistributing it or using it commercially requires the maintainer's prior written permission, subject to the license's GitHub, third-party and legal exceptions. This is source-available software, not open-source software.
+Original standalone material identified in [LICENSE](LICENSE) is source available under a custom personal-use license. The combined engine/native runtime includes GPL-2.0-only material and retains GPL rights, with MIT/LGPL/other notices for its components. Root personal-use restrictions do not override those rights. Read [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before reuse or distribution.
 
-Collaboration is welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to request permission or propose a contribution. Private code and unpublished information require separately approved access. Public files are not confidential, and GitHub's viewing and forking rights remain intact.
-
-These terms cover only independently owned material within the license's stated scope. They do not replace third-party licenses, restrict rights in GPL-covered runtime code or authorize distribution of game or firmware content. Any future builder or runtime release must retain its applicable component licenses and meet their source-distribution requirements.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for collaboration. Do not post game assets, firmware, keys, saves, generated game code or private diagnostics in issues. This is an unofficial project; no rights to Folklore content or trademarks are granted.

@@ -14,3 +14,16 @@ build/
 *.exe
 *.o
 *.obj
+*.dll
+*.frp
+*.pth
+*.safetensors
+*.fht_
+*.bin_
+*.dds
+*.dds_
+*.spv
+.venv/
+texture-packs/
+catalog/
+batch/

@@ -1,0 +1,148 @@
+#version 460
+#extension GL_EXT_ray_query : require
+#extension GL_KHR_shader_subgroup_ballot : require
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D sourceColor;
+layout(binding=1) uniform sampler2D sourceDepth;
+layout(std430,binding=2) readonly buffer Vertices {vec4 value[];} vertices;
+layout(std430,binding=3) readonly buffer Indices {uvec4 value[];} indices;
+layout(std430,binding=4) buffer Clips {vec4 value[];} clips;
+layout(std430,binding=5) buffer Draws {uvec4 value[];} draws;
+layout(binding=6) uniform accelerationStructureEXT scene;
+layout(std140,binding=7) uniform Parameters {
+    mat4 reprojection;vec4 projection;vec4 jitter;
+    uvec4 sizes;   // input width/height, vertex count, reset
+    uvec4 history; // previous/current vertex bank offsets, output width/height
+    uvec4 layout_; // depth history offset, output sample lanes, mapped draw count
+} p;
+layout(rgba16f,binding=8) writeonly uniform image2D colorInput;
+layout(r32f,binding=9) writeonly uniform image2D depthInput;
+layout(rg32f,binding=10) writeonly uniform image2D motionInput;
+layout(r8,binding=11) writeonly uniform image2D biasInput;
+layout(binding=12) uniform sampler2D dlssOutput;
+layout(rgba8,binding=13) writeonly uniform image2D expandedOutput;
+// Exact view-space triangle positions used by the current frame's BLAS.
+layout(std430,binding=14) readonly buffer GatheredPositions {float xyz[];} gathered;
+layout(push_constant) uniform Phase {uint mode;} phase;
+// Draw slots 0..255 map draws; 256 holds eligible/disoccluded/matched/fallback.
+// Slot 257 holds nonfinite output samples/background pixels/reset pixels.
+bool finite4(vec4 v){return !any(isnan(v))&&!any(isinf(v));}
+float dlssInverseHomogeneousScale(float cx,float cy,float cw,float vx,float vy,float vz,float px,float py){
+    if(isnan(cx)||isinf(cx)||isnan(cy)||isinf(cy)||isnan(cw)||isinf(cw)||
+       isnan(vx)||isinf(vx)||isnan(vy)||isinf(vy)||isnan(vz)||isinf(vz)||
+       isnan(px)||isinf(px)||isnan(py)||isinf(py)||px==0.0||py==0.0)return 0.0;
+    // Q=(cx/Px,cy/Py,cw)/h. Recover 1/h from Q's strongest component,
+    // inheriting gather's depth-range and authored homogeneous-scale rules.
+    float q=vx,u=cx/px;
+    if(abs(vy)>abs(q)){q=vy;u=cy/py;}
+    if(abs(vz)>abs(q)){q=vz;u=cw;}
+    if(q==0.0||u==0.0||isnan(u)||isinf(u))return 0.0;
+    float inverseScale=q/u;
+    return isnan(inverseScale)||isinf(inverseScale)||inverseScale<=0.0?0.0:inverseScale;
+}
+// Motion counters (slot 256) for every pixel: one atomic per subgroup.
+void countMotion(uint lane,bool hit){
+    if(!hit)return;
+    uint n=subgroupBallotBitCount(subgroupBallot(true));
+    if(subgroupElect())atomicAdd(draws.value[256][lane],n);
+}
+void countExcluded(uint lane,bool hit){
+    if(!hit)return;
+    uint n=subgroupBallotBitCount(subgroupBallot(true));
+    if(subgroupElect())atomicAdd(draws.value[257][lane],n);
+}
+void main(){
+    uvec2 pixel=gl_GlobalInvocationID.xy;
+    if(phase.mode==1){
+        uint vertex=pixel.y*1024u+pixel.x;
+        if(pixel.x<1024 && vertex<p.sizes.z)clips.value[p.history.y+vertex]=vertices.value[vertex*14u];
+        return;
+    }
+    if(phase.mode==2){
+        // The upscaled world fills every sample lane of the game's expanded
+        // target, so later guest passes read it like the original surface.
+        uint lanes=max(p.layout_.y,1u);
+        if(pixel.x<p.history.z*lanes && pixel.y<p.history.w){
+            vec4 c=texelFetch(dlssOutput,ivec2(pixel.x/lanes,pixel.y),0);
+            if(!finite4(c))atomicAdd(draws.value[257].x,1);
+            imageStore(expandedOutput,ivec2(pixel),finite4(c)?clamp(c,vec4(0),vec4(1)):vec4(0,0,0,1));
+        }
+        return;
+    }
+    if(any(greaterThanEqual(pixel,p.sizes.xy)))return;
+    ivec2 q=ivec2(pixel)*ivec2(2,1);
+    float a=texelFetch(sourceDepth,q,0).r,b=texelFetch(sourceDepth,q+ivec2(1,0),0).r;
+    uint sampleIndex=b<a?1u:0u;float z=min(a,b);
+    if(isnan(z)||isinf(z))z=1;
+    vec4 color=(texelFetch(sourceColor,q,0)+texelFetch(sourceColor,q+ivec2(1,0),0))*.5;
+    imageStore(colorInput,ivec2(pixel),finite4(color)?color:vec4(0,0,0,1));
+    imageStore(depthInput,ivec2(pixel),vec4(z));
+    vec2 motion=vec2(0);float bias=1;
+    vec2 sampleOffset=sampleIndex==0u?vec2(.75):vec2(.25);
+    vec2 uv=(vec2(pixel)+sampleOffset-p.jitter.xy)/vec2(p.sizes.xy);
+    vec4 current=vec4(uv.x*2-1,1-uv.y*2,z,1);
+    bool surface=z>=0 && z<1;
+    bool tracked=surface && p.sizes.w==0u;
+    countExcluded(1u,!surface);
+    countExcluded(2u,surface && p.sizes.w!=0u);
+    float viewDepth=tracked?p.projection.w/(z-p.projection.z):0.0;
+    float oldDepth=tracked?clips.value[p.layout_.x+pixel.y*p.sizes.x+pixel.x].x:0.0;
+    countMotion(0u,tracked);countMotion(1u,tracked && oldDepth>0 && abs(oldDepth-viewDepth)>max(.1,viewDepth*.1));
+    if(tracked){
+        vec4 previous=p.reprojection*current;
+        if(finite4(previous)&&previous.w>1e-6)
+            motion=(previous.xy/previous.w-current.xy)*vec2(.5,-.5)*vec2(p.sizes.xy);
+        float depth=p.projection.w/(z-p.projection.z);
+        uint index=pixel.y*p.sizes.x+pixel.x;
+        clips.value[p.layout_.x+index]=vec4(depth);
+        vec3 position=vec3(current.x/p.projection.x,current.y/p.projection.y,1)*depth;
+        float distance=length(position),tolerance=max(.01,distance*.005);
+        vec3 direction=normalize(position);uint owner=0xffffffffu;vec2 bary=vec2(0);float best=1e30;
+        // Opaque traversal: the nearest triangle inside the raster depth's
+        // tolerance window owns the pixel, found entirely in hardware.
+        rayQueryEXT ray;rayQueryInitializeEXT(ray,scene,gl_RayFlagsOpaqueEXT,255,vec3(0),max(.001,distance-tolerance),direction,distance+tolerance);
+        while(rayQueryProceedEXT(ray)){}
+        if(rayQueryGetIntersectionTypeEXT(ray,true)==gl_RayQueryCommittedIntersectionTriangleEXT){
+            owner=rayQueryGetIntersectionPrimitiveIndexEXT(ray,true);bary=rayQueryGetIntersectionBarycentricsEXT(ray,true);
+        }
+        if(owner!=0xffffffffu && owner<uint(indices.value.length()) && owner<uint(gathered.xyz.length())/9u){
+            uvec4 tri=indices.value[owner];
+            // Keep unmatched geometry on camera motion; never interpret
+            // diagnostics slots or an unowned draw as a vertex mapping.
+            uvec4 map=tri.w<min(p.layout_.z,256u)?draws.value[tri.w]:uvec4(0);
+            if(map.z!=0u && all(lessThan(tri.xyz,uvec3(p.sizes.z)))){
+                vec3 weights=vec3(1-bary.x-bary.y,bary);
+                // BVH is in reconstructed view coordinates, so its barycentrics
+                // are affine view-space weights, not screen-space weights.
+                vec4 prev=vec4(0),now=vec4(0);bool valid=true;vec3 inverseScale=vec3(0);
+                for(uint i=0;i<3;i++){
+                    vec4 cc=vertices.value[tri[i]*14u];
+                    uint v=owner*9u+i*3u;
+                    inverseScale[i]=dlssInverseHomogeneousScale(cc.x,cc.y,cc.w,
+                        gathered.xyz[v],gathered.xyz[v+1u],gathered.xyz[v+2u],
+                        p.projection.x,p.projection.y);
+                    if(inverseScale[i]<=0.0)valid=false;
+                }
+                float maximum=max(inverseScale.x,max(inverseScale.y,inverseScale.z));
+                if(maximum>0.0)weights*=inverseScale/maximum;else valid=false;
+                float sumWeights=weights.x+weights.y+weights.z;
+                if(isnan(sumWeights)||isinf(sumWeights)||sumWeights<=0.0)valid=false;else weights/=sumWeights;
+                for(uint i=0;i<3;i++){
+                    uint local=tri[i]-map.y;
+                    vec4 pc=clips.value[p.history.x+map.x+local];
+                    vec4 cc=vertices.value[tri[i]*14u];
+                    if(!finite4(pc)||!finite4(cc)||pc.w<=0||cc.w<=0)valid=false;
+                    prev+=pc*weights[i];now+=cc*weights[i];
+                }
+                if(valid&&prev.w>1e-6&&now.w>1e-6){
+                    motion=(prev.xy/prev.w-now.xy/now.w)*vec2(.5,-.5)*vec2(p.sizes.xy);
+                    bias=0;
+                }
+            }
+        }
+    }
+    if(any(isnan(motion))||any(isinf(motion))||any(greaterThan(abs(motion),vec2(p.sizes.xy)))){motion=vec2(0);bias=1;}
+    imageStore(motionInput,ivec2(pixel),vec4(motion,0,0));
+    countMotion(2u,tracked && bias==0);countMotion(3u,tracked && bias!=0);
+    imageStore(biasInput,ivec2(pixel),vec4(bias));
+}

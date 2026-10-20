@@ -1,0 +1,1113 @@
+cmake_minimum_required(VERSION 3.20)
+# Keep in step with the changelog in README.md. This sat at 0.3.0 until August
+# 2026 while the project shipped 0.6.x through 0.8.0, so every build printed
+# "ps3recomp runtime v0.3.0" and was believed. v0.9.0 is the first TAGGED one.
+project(ps3recomp_runtime
+    VERSION 0.11.0
+    LANGUAGES C CXX
+    DESCRIPTION "ps3recomp - Static recompilation runtime for PS3 games"
+)
+
+# ---------------------------------------------------------------------------
+# Standards
+# ---------------------------------------------------------------------------
+set(CMAKE_C_STANDARD 17)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# ---------------------------------------------------------------------------
+# Options
+# ---------------------------------------------------------------------------
+option(PS3RECOMP_BUILD_TESTS "Build unit tests" OFF)
+option(PS3RECOMP_PAD_USE_SDL2 "Use SDL2 controller input on Windows, including physical motion sensors" OFF)
+
+# ---------------------------------------------------------------------------
+# Collect source files
+# ---------------------------------------------------------------------------
+
+# HLE library sources
+file(GLOB_RECURSE HLE_SOURCES
+    "libs/system/*.c"
+    "libs/filesystem/*.c"
+    "libs/input/*.c"
+    "libs/audio/*.c"
+    "libs/video/*.c"
+    "libs/network/*.c"
+    "libs/spurs/*.c"
+    "libs/sync/*.c"
+    "libs/codec/*.c"
+    "libs/font/*.c"
+    "libs/misc/*.c"
+    "libs/hardware/*.c"
+    "runtime/diag/*.c"      # yz_frontier_trace, used by the live draw engine
+)
+# Exclude test harnesses (e.g. libs/video/tests/*): they define their own main().
+list(FILTER HLE_SOURCES EXCLUDE REGEX "/tests/")
+# Reconfigure after copying texture_pack.c/.h beside rsx_draw_engine.c.
+list(REMOVE_ITEM HLE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/texture_pack.c")
+list(APPEND HLE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/texture_pack.c")
+
+# The Vulkan RSX backend is opt-in while it grows (stage V0: clear + present).
+# It loads libvulkan at run time, so building needs only the Vulkan headers --
+# no target-architecture libvulkan, which keeps cross-compiling simple.
+option(PS3RECOMP_RSX_VULKAN "Build the Vulkan RSX backend (Windows/Linux/Android)" OFF)
+option(PS3RECOMP_RSX_CACAO "Build the optional CACAO Vulkan component" OFF)
+set(PS3RECOMP_CACAO_SHADER_DIR "" CACHE PATH "Output directory from tools/build_cacao_shaders.py")
+list(FILTER HLE_SOURCES EXCLUDE REGEX "rsx_vulkan_(backend|anisotropy)\\.c$")
+list(FILTER HLE_SOURCES EXCLUDE REGEX "rsx_cacao_dispatch\\.c$")
+if(PS3RECOMP_RSX_CACAO)
+    if(NOT PS3RECOMP_RSX_VULKAN)
+        message(FATAL_ERROR "PS3RECOMP_RSX_CACAO requires PS3RECOMP_RSX_VULKAN")
+    endif()
+    if(NOT EXISTS "${PS3RECOMP_CACAO_SHADER_DIR}/manifest.json" OR
+       NOT IS_DIRECTORY "${PS3RECOMP_CACAO_SHADER_DIR}/PrecompiledShadersSPIRV")
+        message(FATAL_ERROR "Generate CACAO shaders with tools/build_cacao_shaders.py and set PS3RECOMP_CACAO_SHADER_DIR")
+    endif()
+    list(APPEND HLE_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/rsx_cacao_dispatch.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/rsx_cacao_impl.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/cacao/src/ffx_cacao.cpp")
+endif()
+if(PS3RECOMP_RSX_VULKAN)
+    if(APPLE)
+        message(FATAL_ERROR "PS3RECOMP_RSX_VULKAN does not support Apple hosts yet")
+    endif()
+    find_path(PS3RECOMP_VULKAN_INCLUDE_DIR vulkan/vulkan.h)
+    if(NOT PS3RECOMP_VULKAN_INCLUDE_DIR)
+        message(FATAL_ERROR "Vulkan headers not found. Debian/Ubuntu: "
+            "libvulkan-dev, Fedora: vulkan-headers -- or pass "
+            "-DPS3RECOMP_VULKAN_INCLUDE_DIR=<dir containing vulkan/vulkan.h>")
+    endif()
+    list(APPEND HLE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/rsx_vulkan_backend.c")
+    list(APPEND HLE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/rsx_vulkan_anisotropy.c")
+    # HLSL -> SPIR-V for guest programs: a stub unless glslang is found below.
+    list(APPEND HLE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/rsx_shader_spirv.cpp")
+endif()
+
+# The Metal backend is Objective-C and Apple-only, so it is added explicitly
+# rather than globbed. It needs no platform #ifdef of its own as a result.
+if(APPLE)
+    enable_language(OBJC)
+    list(APPEND HLE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/rsx_metal_backend.m")
+endif()
+# The HLSL -> MSL translator is C++ (it drives glslang's C++ API) and compiles
+# to a stub wherever the shader tools are absent, so it is part of the
+# library everywhere. See the "Guest shaders on Metal" section below.
+list(APPEND HLE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/rsx_shader_msl.cpp")
+# cellAtrac decodes with FFmpeg's ATRAC3plus decoder as extracted by PPSSPP
+# (LGPL-2.1, kept separate in third_party/at3_standalone -- see its README).
+file(GLOB AT3_SOURCES "third_party/at3_standalone/*.cpp")
+set_source_files_properties(${AT3_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")  # upstream code
+list(APPEND HLE_SOURCES ${AT3_SOURCES})
+
+# Runtime core (syscalls, PPU, SPU, memory)
+file(GLOB_RECURSE RUNTIME_SOURCES
+    "runtime/*.c"
+    "runtime/*.cpp"
+)
+# Exclude:
+#  - test harnesses (runtime/*/tests/*): they have their own main() and #include
+#    per-game generated headers (spu_recomp.h) that a plain library build lacks.
+#  - the PPU boot scaffold (runtime/ppu/, runtime/host/): these are compiled
+#    per-game against the lifter-generated ppu_recomp.h (and the game's RSX/D3D12
+#    backend), not as part of the game-agnostic runtime library. See
+#    docs/PPU_RECOMP.md.
+#  - spu_dispatch_mt.c: the musttail SPU indirect-branch fast path. It uses
+#    __attribute__((musttail)), which MSVC cannot parse, and it must be compiled
+#    *inside the game build* by clang so the tail call is guaranteed -- a plain
+#    call leaks one resolver frame per guest loop iteration. A port adds it to
+#    its own target; see templates/project/CMakeLists.txt.
+list(FILTER RUNTIME_SOURCES EXCLUDE REGEX "/tests/|/runtime/ppu/|/runtime/host/|/spu_dispatch_mt\.c$")
+
+# ---------------------------------------------------------------------------
+# Static library
+# ---------------------------------------------------------------------------
+# Explicit inclusion keeps the checked SPURS job-chain helper in this target.
+list(REMOVE_ITEM RUNTIME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/runtime/spu/spurs_job_snapshot.c")
+list(APPEND RUNTIME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/runtime/spu/spurs_job_snapshot.c")
+add_library(ps3recomp_runtime STATIC
+    ${HLE_SOURCES}
+    ${RUNTIME_SOURCES}
+)
+find_package(ZLIB REQUIRED)
+target_link_libraries(ps3recomp_runtime PRIVATE ZLIB::ZLIB)
+
+include(cmake/SceneRayShaders.cmake)
+
+if(ANDROID)
+    find_path(PS3RECOMP_UCONTEXT_INCLUDE_DIR libucontext/libucontext.h REQUIRED)
+    find_library(PS3RECOMP_UCONTEXT_POSIX_LIBRARY NAMES ucontext_posix REQUIRED)
+    find_library(PS3RECOMP_UCONTEXT_LIBRARY NAMES ucontext REQUIRED)
+    target_include_directories(ps3recomp_runtime PRIVATE "${PS3RECOMP_UCONTEXT_INCLUDE_DIR}")
+    target_link_libraries(ps3recomp_runtime PRIVATE
+        "${PS3RECOMP_UCONTEXT_POSIX_LIBRARY}" "${PS3RECOMP_UCONTEXT_LIBRARY}")
+endif()
+
+target_include_directories(ps3recomp_runtime PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+
+# HLE modules include their own headers
+target_include_directories(ps3recomp_runtime PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/system"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/filesystem"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/input"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/audio"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/video"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/network"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/spurs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/sync"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/codec"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/font"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/misc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/spu"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+
+# Platform-specific link libraries
+if(PS3RECOMP_PAD_USE_SDL2)
+    find_package(SDL2 2.26 REQUIRED)
+    set_property(SOURCE libs/input/g7_motion_backend.c
+        APPEND PROPERTY COMPILE_DEFINITIONS G7_WITH_SDL_HIDAPI=1)
+    set_property(SOURCE libs/input/ds3_motion_backend.c
+        APPEND PROPERTY COMPILE_DEFINITIONS DS3_WITH_SDL_HIDAPI=1)
+    set_property(SOURCE libs/input/cellPad.c libs/video/rsx_vulkan_backend.c
+        APPEND PROPERTY COMPILE_DEFINITIONS PS3RECOMP_PAD_USE_SDL2=1)
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(ps3recomp_runtime PRIVATE SDL2::SDL2)
+    else()
+        target_include_directories(ps3recomp_runtime PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(ps3recomp_runtime PRIVATE ${SDL2_LIBRARIES})
+    endif()
+endif()
+if(WIN32)
+    target_link_libraries(ps3recomp_runtime PRIVATE
+        ws2_32      # Winsock for network modules
+        xinput      # XInput for gamepad
+        ole32       # COM for WASAPI audio
+        bcrypt      # BCryptGenRandom for SSL RNG
+    )
+else()
+    # cellPad and cellAudio select their SDL2 backends unconditionally off
+    # Windows (see PAD_BACKEND_SDL2 / AUDIO_BACKEND_SDL2), so SDL2 is required
+    # here -- docs/BUILDING.md already lists it as the Linux/macOS dependency.
+    find_package(SDL2 2.26 QUIET)
+    if(SDL2_FOUND)
+        if(TARGET SDL2::SDL2)
+            target_link_libraries(ps3recomp_runtime PRIVATE SDL2::SDL2)
+        else()
+            target_include_directories(ps3recomp_runtime PRIVATE ${SDL2_INCLUDE_DIRS})
+            target_link_libraries(ps3recomp_runtime PRIVATE ${SDL2_LIBRARIES})
+        endif()
+        message(STATUS "  SDL2:         found (input + audio backends enabled)")
+    else()
+        message(FATAL_ERROR
+            "SDL2 not found. It provides the cellPad and cellAudio backends on "
+            "non-Windows hosts.\n"
+            "  macOS:  brew install sdl2\n"
+            "  Debian: apt install libsdl2-dev\n"
+            "If SDL2 is installed in a non-standard prefix, pass "
+            "-DCMAKE_PREFIX_PATH=<prefix>.")
+    endif()
+
+    find_package(Threads REQUIRED)
+    target_link_libraries(ps3recomp_runtime PRIVATE Threads::Threads)
+endif()
+
+if(APPLE)
+    target_link_libraries(ps3recomp_runtime PUBLIC
+        "-framework Metal"
+        "-framework QuartzCore"
+        "-framework Foundation"
+        "-framework AppKit"
+    )
+    set_source_files_properties(
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/rsx_metal_backend.m"
+        PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    message(STATUS "  Metal:        RSX backend enabled (rsx_metal_backend.m)")
+endif()
+
+if(PS3RECOMP_RSX_VULKAN)
+    target_include_directories(ps3recomp_runtime PRIVATE "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+    if(PS3RECOMP_RSX_CACAO)
+        target_include_directories(ps3recomp_runtime PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/cacao/inc"
+            "${PS3RECOMP_CACAO_SHADER_DIR}")
+        target_compile_definitions(ps3recomp_runtime PRIVATE PS3RECOMP_RSX_CACAO)
+    endif()
+    if(WIN32)
+        find_package(SDL2 REQUIRED)
+        if(TARGET SDL2::SDL2)
+            target_link_libraries(ps3recomp_runtime PRIVATE SDL2::SDL2)
+        else()
+            target_include_directories(ps3recomp_runtime PRIVATE ${SDL2_INCLUDE_DIRS})
+            target_link_libraries(ps3recomp_runtime PRIVATE ${SDL2_LIBRARIES})
+        endif()
+    endif()
+    # PUBLIC: ps3recomp_host selects its backend on this definition.
+    target_compile_definitions(ps3recomp_runtime PUBLIC PS3RECOMP_RSX_VULKAN)
+    target_link_libraries(ps3recomp_runtime PUBLIC ${CMAKE_DL_LIBS})
+    message(STATUS "  Vulkan:       RSX backend enabled (rsx_vulkan_backend.c, headers in ${PS3RECOMP_VULKAN_INCLUDE_DIR})")
+endif()
+
+# cellVdec decodes H.264 / MPEG-2 through FFmpeg when this is on. libavcodec
+# is loaded at run time (dlopen / LoadLibrary), never linked, so building needs
+# only the FFmpeg headers, and a binary run where FFmpeg is absent -- or with
+# PS3RECOMP_FFMPEG=0 -- keeps the callback-only decoders. FFmpeg stays a
+# separate, user-supplied LGPL library. See libs/codec/ffmpeg_runtime.h.
+option(PS3RECOMP_FFMPEG_RUNTIME "Decode media through FFmpeg loaded at run time (needs the FFmpeg headers)" OFF)
+if(PS3RECOMP_FFMPEG_RUNTIME)
+    find_path(PS3RECOMP_FFMPEG_INCLUDE_DIR libavcodec/avcodec.h)
+    if(NOT PS3RECOMP_FFMPEG_INCLUDE_DIR)
+        message(FATAL_ERROR "FFmpeg headers not found. Debian/Ubuntu: "
+            "libavcodec-dev, Fedora: ffmpeg-free-devel, MSYS2: mingw-w64-x86_64-ffmpeg "
+            "-- or pass -DPS3RECOMP_FFMPEG_INCLUDE_DIR=<dir containing libavcodec/avcodec.h>")
+    endif()
+    target_include_directories(ps3recomp_runtime PRIVATE "${PS3RECOMP_FFMPEG_INCLUDE_DIR}")
+    target_compile_definitions(ps3recomp_runtime PRIVATE PS3RECOMP_FFMPEG_RUNTIME)
+    target_link_libraries(ps3recomp_runtime PUBLIC ${CMAKE_DL_LIBS})
+    message(STATUS "  FFmpeg:       run-time loaded (headers in ${PS3RECOMP_FFMPEG_INCLUDE_DIR})")
+endif()
+
+# ---------------------------------------------------------------------------
+# Guest shaders on Metal: HLSL -> SPIR-V -> MSL
+# ---------------------------------------------------------------------------
+# The RSX decompilers emit HLSL for the D3D12 backend. Metal cannot compile
+# that, so libs/video/rsx_shader_msl.cpp lowers it with glslang (HLSL ->
+# SPIR-V) and spirv-cross (SPIR-V -> MSL). Both are optional: without them the
+# module compiles to a stub, rsx_hlsl_to_msl_available() says so, and the
+# Metal backend stays on its fixed-function path. The translation has no GPU
+# in it, so it is built and tested on Linux as well -- that is where the
+# decompilers' HLSL meets glslang's front end on every push.
+#
+#   macOS:  brew install glslang spirv-cross
+#   Debian: apt install glslang-dev glslang-tools spirv-tools \
+#                       libspirv-cross-c-shared-dev
+#           (glslang-tools only because the packaged CMake config declares
+#           the standalone binary as an imported target and fails to load
+#           without it)
+set(PS3RECOMP_MSL_TRANSLATION OFF)
+if(PS3RECOMP_RSX_VULKAN AND NOT UNIX)
+    find_package(glslang CONFIG QUIET)
+endif()
+if(UNIX)
+    find_package(glslang CONFIG QUIET)
+
+    # spirv-cross's C API. Debian ships it as a shared library and Homebrew as
+    # a static one, under different pkg-config names -- and pkg-config itself
+    # is not a given on a Mac, so fall back to a plain header + library search.
+    set(SPVC_OK OFF)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(SPVC QUIET spirv-cross-c-shared)
+        if(NOT SPVC_FOUND)
+            pkg_check_modules(SPVC QUIET spirv-cross-c)
+        endif()
+        if(SPVC_FOUND)
+            set(SPVC_INC     ${SPVC_INCLUDE_DIRS})
+            set(SPVC_LIBS    ${SPVC_LINK_LIBRARIES})
+            set(SPVC_LIBDIRS ${SPVC_LIBRARY_DIRS})
+            set(SPVC_OK ON)
+        endif()
+    endif()
+    if(NOT SPVC_OK)
+        find_path(SPVC_INC_DIR spirv_cross_c.h PATH_SUFFIXES spirv_cross)
+        find_library(SPVC_LIB NAMES spirv-cross-c-shared spirv-cross-c)
+        if(SPVC_INC_DIR AND SPVC_LIB)
+            set(SPVC_INC  ${SPVC_INC_DIR})
+            set(SPVC_LIBS ${SPVC_LIB})
+            get_filename_component(SPVC_LIBDIRS "${SPVC_LIB}" DIRECTORY)
+            set(SPVC_OK ON)
+        endif()
+    endif()
+
+    if(glslang_FOUND AND SPVC_OK
+       AND TARGET glslang::glslang AND TARGET glslang::SPIRV)
+        add_library(ps3recomp_msl_translation INTERFACE)
+        target_compile_definitions(ps3recomp_msl_translation INTERFACE
+            PS3RECOMP_HAVE_MSL_TRANSLATION=1)
+        target_include_directories(ps3recomp_msl_translation INTERFACE ${SPVC_INC})
+        target_link_libraries(ps3recomp_msl_translation INTERFACE
+            glslang::glslang glslang::SPIRV ${SPVC_LIBS})
+        if(TARGET glslang::glslang-default-resource-limits)
+            target_link_libraries(ps3recomp_msl_translation INTERFACE
+                glslang::glslang-default-resource-limits)
+        endif()
+        # A static spirv-cross C API (Homebrew's) needs the backends it was
+        # built from, and neither pkg-config nor the library name says so:
+        # pick up the static siblings next to it. The shared one carries
+        # its own.
+        if(SPVC_LIBS MATCHES "\\.a$")
+            foreach(part msl glsl hlsl cpp reflect util core)
+                find_library(SPVC_PART_${part} NAMES spirv-cross-${part}
+                    HINTS ${SPVC_LIBDIRS} NO_DEFAULT_PATH)
+                if(SPVC_PART_${part})
+                    target_link_libraries(ps3recomp_msl_translation INTERFACE
+                        ${SPVC_PART_${part}})
+                endif()
+            endforeach()
+        endif()
+        target_link_libraries(ps3recomp_runtime PRIVATE ps3recomp_msl_translation)
+        set(PS3RECOMP_MSL_TRANSLATION ON)
+        message(STATUS "  Shaders:      guest programs translated to MSL (glslang ${glslang_VERSION}, ${SPVC_LIBS})")
+    else()
+        message(STATUS "  Shaders:      glslang/spirv-cross not found; Metal backend stays fixed-function")
+    endif()
+endif()
+
+# Guest shaders on Vulkan: HLSL -> SPIR-V. glslang only -- Vulkan consumes
+# SPIR-V, so spirv-cross is not needed. Without glslang
+# libs/video/rsx_shader_spirv.cpp is a stub and the Vulkan backend stays on
+# its fixed-function path.
+if(PS3RECOMP_RSX_VULKAN)
+    if(glslang_FOUND AND TARGET glslang::glslang AND TARGET glslang::SPIRV)
+        set_source_files_properties(
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video/rsx_shader_spirv.cpp"
+            PROPERTIES COMPILE_DEFINITIONS PS3RECOMP_HAVE_SPIRV_TRANSLATION=1)
+        target_link_libraries(ps3recomp_runtime PRIVATE glslang::glslang glslang::SPIRV)
+        if(TARGET glslang::glslang-default-resource-limits)
+            target_link_libraries(ps3recomp_runtime PRIVATE
+                glslang::glslang-default-resource-limits)
+        endif()
+        message(STATUS "  Vulkan:       guest programs available (glslang ${glslang_VERSION}); "
+                       "opt in with PS3RECOMP_VK_GUEST_PROGRAMS=1")
+        # SPIR-V disk cache: hits, damaged-file rejection, no cached failures. CPU only.
+        add_executable(test_spirv_cache EXCLUDE_FROM_ALL
+            tests/test_spirv_cache.cpp libs/video/rsx_shader_spirv.cpp)
+        target_include_directories(test_spirv_cache PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/libs/video")
+        target_link_libraries(test_spirv_cache PRIVATE glslang::glslang glslang::SPIRV)
+        if(TARGET glslang::glslang-default-resource-limits)
+            target_link_libraries(test_spirv_cache PRIVATE glslang::glslang-default-resource-limits)
+        endif()
+    else()
+        message(STATUS "  Vulkan:       glslang not found; guest programs unavailable")
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# Compiler flags
+# ---------------------------------------------------------------------------
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(ps3recomp_runtime PRIVATE
+        -Wall -Wextra -Wno-unused-parameter
+        -fno-strict-aliasing
+        # No spontaneous fused multiply-add. MSVC never contracts, and x86-64
+        # without -mfma has nothing to contract into, so every validated
+        # result came from separate multiplies and adds; arm64 has FMA in
+        # the base ISA and Clang fuses by default there. A PPC fmadd is
+        # spelt as one where the lifter means one.
+        -ffp-contract=off
+        # Explicit, because the per-config defaults cannot be trusted: this
+        # tree's caches carry CMAKE_C_FLAGS_RELEASE="" and CMAKE_CXX_FLAGS_RELEASE="",
+        # and clang-cl with no /O flag compiles at /Od -- a "Release" runtime
+        # was unoptimised without a word. Duplicating a default -O2 is harmless.
+        $<$<CONFIG:Release,RelWithDebInfo>:-O2>
+    )
+    # SSE4.1 (any x86-64 since ~2008): pshufb/blendv for spu_shufb, the
+    # hottest SPU op in lifted audio code. Probed rather than assumed: recent
+    # Apple clang rejects the flag outright for arm64 ("unsupported option
+    # '-msse4.1'"), which stops the whole runtime from building there.
+    include(CheckCCompilerFlag)
+    check_c_compiler_flag(-msse4.1 PS3RECOMP_HAS_MSSE41)
+    if(PS3RECOMP_HAS_MSSE41)
+        target_compile_options(ps3recomp_runtime PRIVATE -msse4.1)
+    endif()
+elseif(MSVC)
+    # Real cl.exe -- clang-cl reports its id as Clang and is handled above.
+    #
+    # This does not currently build. The runtime and the lifted output use GCC/
+    # Clang builtins that cl has no equivalent for, and the failure lands as a
+    # wall of errors in whichever file the build happens to reach first rather
+    # than as anything that names the cause. Say it here instead.
+    message(WARNING
+        "Building with cl.exe (MSVC). This is not currently supported.\n"
+        "  The runtime uses __atomic_* builtins, __int128 and __builtin_bswap*, "
+        "and the lifted output uses __int128 for the PPC 64x64 multiplies. "
+        "cl has none of them.\n"
+        "  Use clang-cl instead -- it consumes the MSVC headers and libraries, "
+        "so nothing else about a Visual Studio build changes:\n"
+        "    cmake -S . -B build -G Ninja "
+        "-DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl\n"
+        "  See docs/BUILDING.md. Porting the intrinsics to cl is a welcome "
+        "contribution; nothing else stands in the way.")
+    target_compile_options(ps3recomp_runtime PRIVATE
+        /W3 /wd4100 /wd4244 /wd4267 /wd4996
+        /Zc:__cplusplus
+        /experimental:c11atomics   # Enable C11 <stdatomic.h> support
+    )
+    target_compile_definitions(ps3recomp_runtime PRIVATE
+        _CRT_SECURE_NO_WARNINGS
+    )
+endif()
+
+if(NOT MSVC AND NOT WIN32)
+    # dladdr/Dl_info (runtime/platform/win32_backtrace.h) are GNU extensions
+    # that glibc hides unless _GNU_SOURCE is set. g++ defines it implicitly,
+    # so the C++ boot scaffold never noticed; a C file including the same
+    # shim does not get it for free.
+    target_compile_definitions(ps3recomp_runtime PRIVATE _GNU_SOURCE)
+endif()
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+if(PS3RECOMP_BUILD_TESTS)
+    include(CTest)
+    # sync_stress is written directly against the Win32 threading API
+    # (WaitForMultipleObjects, joinable HANDLEs, Interlocked*, CRITICAL_SECTION).
+    # Off Windows all of that comes from runtime/platform/win32_compat.h, so
+    # the suite runs everywhere -- and is the arm64 memory-model regression
+    # net for the lv2 sync primitives.
+    add_subdirectory(tests/sync_stress)
+    # cellFiber switches contexts with Windows fibers on Windows and ucontext
+    # everywhere else. Apple deprecated the ucontext routines and gates both
+    # them and the shape of ucontext_t on _XOPEN_SOURCE, so whether that path
+    # works on arm64 is a question to answer rather than assume.
+    add_subdirectory(tests/fiber_switch)
+    # cellVdec through its guest API: the callback-only decoder always, and
+    # real H.264 / MPEG-2 decode when FFmpeg is on (libs/codec/tests).
+    add_subdirectory(libs/codec/tests)
+endif()
+
+# ---------------------------------------------------------------------------
+# POSIX host harness
+# ---------------------------------------------------------------------------
+if(MINGW)
+    add_executable(test_folklore_clear_d3d12_gpu EXCLUDE_FROM_ALL
+        tests/test_folklore_clear_d3d12_gpu.c runtime/host/host_stubs.c)
+    target_include_directories(test_folklore_clear_d3d12_gpu PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/libs/video")
+    target_compile_options(test_folklore_clear_d3d12_gpu PRIVATE -UNDEBUG -fms-extensions)
+    target_link_libraries(test_folklore_clear_d3d12_gpu PRIVATE ps3recomp_runtime
+        dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid winpthread)
+    set_target_properties(test_folklore_clear_d3d12_gpu PROPERTIES LINKER_LANGUAGE CXX)
+    add_executable(test_folklore_depth_clip_d3d12_gpu EXCLUDE_FROM_ALL
+        tests/test_folklore_depth_clip_d3d12_gpu.c runtime/host/host_stubs.c)
+    target_include_directories(test_folklore_depth_clip_d3d12_gpu PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/libs/video")
+    target_compile_options(test_folklore_depth_clip_d3d12_gpu PRIVATE -UNDEBUG -fms-extensions)
+    target_link_libraries(test_folklore_depth_clip_d3d12_gpu PRIVATE ps3recomp_runtime
+        dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+    target_link_libraries(test_folklore_depth_clip_d3d12_gpu PRIVATE winpthread)
+    set_target_properties(test_folklore_depth_clip_d3d12_gpu PROPERTIES LINKER_LANGUAGE CXX)
+endif()
+if(WIN32)
+    add_executable(test_folklore_depth_clip_d3d12 EXCLUDE_FROM_ALL
+        tests/test_folklore_depth_clip_d3d12.c runtime/host/host_stubs.c)
+    target_include_directories(test_folklore_depth_clip_d3d12 PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/libs/video")
+    if(MSVC)
+        target_compile_options(test_folklore_depth_clip_d3d12 PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(test_folklore_depth_clip_d3d12 PRIVATE -UNDEBUG -fms-extensions)
+    endif()
+    target_link_libraries(test_folklore_depth_clip_d3d12 PRIVATE ps3recomp_runtime
+        dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+    set_target_properties(test_folklore_depth_clip_d3d12 PROPERTIES LINKER_LANGUAGE CXX)
+endif()
+# Drives the cellGcm -> RSX -> backend bridge with no lifted game, so a backend
+# can be brought up and regression-tested without a game binary or a recompiler
+# run. Builds on any POSIX host: it picks Metal on Apple and the null backend's
+# headless software path everywhere else, so Linux -- which has no real backend
+# yet -- can still run the whole guest command stream end to end in CI.
+if(UNIX OR (WIN32 AND PS3RECOMP_RSX_VULKAN))
+    add_executable(ps3recomp_host
+        runtime/host/host_posix.c
+        runtime/host/host_stubs.c
+        runtime/host/host_fixture_symbols.c
+    )
+    target_link_libraries(ps3recomp_host PRIVATE ps3recomp_runtime)
+    if(WIN32)
+        target_link_libraries(ps3recomp_host PRIVATE
+            winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+    endif()
+    if(NOT WIN32)
+        # glibc keeps the math functions in a separate library; MSVC does not.
+        target_link_libraries(ps3recomp_host PRIVATE m)
+    endif()
+    target_include_directories(ps3recomp_host PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/video"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    # The runtime carries C++ (and, with translation on, spirv-cross), so the
+    # C++ driver must do the final link or the standard library goes missing.
+    set_target_properties(ps3recomp_host PROPERTIES LINKER_LANGUAGE CXX)
+
+    if(PS3RECOMP_RSX_VULKAN)
+        add_executable(test_scene_capture_layout EXCLUDE_FROM_ALL
+            tests/test_scene_capture_layout.c libs/video/rsx_texture_layout.c)
+        target_include_directories(test_scene_capture_layout PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_compile_options(test_scene_capture_layout PRIVATE -ffunction-sections -fdata-sections)
+        target_link_options(test_scene_capture_layout PRIVATE -Wl,--gc-sections)
+        target_link_libraries(test_scene_capture_layout PRIVATE m)
+        add_executable(test_temporal_geometry EXCLUDE_FROM_ALL
+            tests/test_temporal_geometry.c libs/video/rsx_temporal_geometry.c)
+        target_compile_options(test_temporal_geometry PRIVATE -Wall -Wextra -Werror -UNDEBUG -ffp-contract=off -fno-fast-math)
+        target_link_libraries(test_temporal_geometry PRIVATE m)
+        add_executable(test_scene_epoch EXCLUDE_FROM_ALL tests/test_scene_epoch.c libs/video/rsx_scene_epoch.c)
+        target_include_directories(test_scene_epoch PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_compile_options(test_scene_epoch PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+        target_link_libraries(test_scene_epoch PRIVATE m)
+        add_executable(test_scene_alpha EXCLUDE_FROM_ALL tests/test_scene_alpha.c libs/video/rsx_scene_alpha.c)
+        add_executable(test_scene_stencil EXCLUDE_FROM_ALL tests/test_scene_stencil.c)
+        target_include_directories(test_scene_stencil PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_compile_options(test_scene_stencil PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+        target_include_directories(test_scene_alpha PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_compile_options(test_scene_alpha PRIVATE -Wall -Wextra -Werror -ffp-contract=off -fno-fast-math)
+        target_link_libraries(test_scene_alpha PRIVATE m)
+        add_executable(test_scene_bvh EXCLUDE_FROM_ALL tests/test_scene_bvh.c libs/video/rsx_scene_bvh.c)
+        target_compile_options(test_scene_bvh PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+        target_link_libraries(test_scene_bvh PRIVATE m)
+        add_executable(scene_ray_reference EXCLUDE_FROM_ALL tests/scene_ray_reference.c libs/video/rsx_scene_bvh.c)
+        target_compile_options(scene_ray_reference PRIVATE -Wall -Wextra -Werror)
+        target_link_libraries(scene_ray_reference PRIVATE m)
+        add_executable(test_vulkan_advanced_capabilities EXCLUDE_FROM_ALL
+            tests/test_vulkan_advanced_capabilities.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_advanced_capabilities PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_vulkan_advanced_capabilities PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(PS3RECOMP_RSX_CACAO)
+            target_compile_definitions(test_vulkan_advanced_capabilities PRIVATE PS3RECOMP_RSX_CACAO)
+            target_include_directories(test_vulkan_advanced_capabilities PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/cacao/inc")
+        endif()
+        if(WIN32)
+            target_link_libraries(test_vulkan_advanced_capabilities PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_advanced_capabilities PROPERTIES LINKER_LANGUAGE CXX)
+        find_library(PS3RECOMP_RAY_QUERY_LOADER NAMES vulkan-1 vulkan)
+        find_program(PS3RECOMP_RAY_QUERY_GLSLANG NAMES glslang glslangValidator)
+        if(PS3RECOMP_RAY_QUERY_LOADER AND PS3RECOMP_RAY_QUERY_GLSLANG)
+            add_executable(test_scene_alpha_gpu EXCLUDE_FROM_ALL
+                tests/test_scene_alpha_gpu.c libs/video/rsx_scene_alpha.c)
+            target_include_directories(test_scene_alpha_gpu PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/include" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+            target_compile_options(test_scene_alpha_gpu PRIVATE -Wall -Wextra -Werror -ffp-contract=off -fno-fast-math)
+            target_link_libraries(test_scene_alpha_gpu PRIVATE "${PS3RECOMP_RAY_QUERY_LOADER}" m)
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/scene_alpha_gpu.spv"
+                COMMAND $<TARGET_FILE:test_scene_alpha_gpu> --emit-glsl "${CMAKE_CURRENT_BINARY_DIR}/scene_alpha_gpu.comp"
+                COMMAND "${PS3RECOMP_RAY_QUERY_GLSLANG}" -V
+                    "-I${CMAKE_CURRENT_SOURCE_DIR}/libs/video"
+                    "${CMAKE_CURRENT_BINARY_DIR}/scene_alpha_gpu.comp"
+                    -o "${CMAKE_CURRENT_BINARY_DIR}/scene_alpha_gpu.spv"
+                DEPENDS test_scene_alpha_gpu libs/video/rsx_scene_alpha.glsl VERBATIM)
+            add_custom_target(test_scene_alpha_gpu_shader DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/scene_alpha_gpu.spv")
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/scene_ray_query.spv"
+                COMMAND "${PS3RECOMP_RAY_QUERY_GLSLANG}" -V --target-env vulkan1.2
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/scene_ray_query.comp"
+                    -o "${CMAKE_CURRENT_BINARY_DIR}/scene_ray_query.spv"
+                DEPENDS tests/scene_ray_query.comp VERBATIM)
+            add_custom_target(scene_ray_query_shader DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/scene_ray_query.spv")
+            add_executable(test_vulkan_ray_query_geometry EXCLUDE_FROM_ALL tests/test_vulkan_ray_query_geometry.c)
+            target_include_directories(test_vulkan_ray_query_geometry PRIVATE "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+            target_link_libraries(test_vulkan_ray_query_geometry PRIVATE "${PS3RECOMP_RAY_QUERY_LOADER}" m)
+            add_dependencies(test_vulkan_ray_query_geometry scene_ray_query_shader)
+        endif()
+        add_executable(test_vulkan_scene_bridge EXCLUDE_FROM_ALL
+            tests/test_vulkan_scene_bridge.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_scene_bridge PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_vulkan_scene_bridge PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_scene_bridge PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_scene_bridge PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_scene_vertex_outputs EXCLUDE_FROM_ALL
+            tests/test_scene_vertex_outputs.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_scene_vertex_outputs PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_scene_vertex_outputs PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_scene_vertex_outputs PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_scene_vertex_outputs PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_scene_batch_gpu EXCLUDE_FROM_ALL
+            tests/test_scene_batch_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_scene_batch_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_scene_batch_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_scene_batch_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_scene_batch_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vulkan_ray_ao_live EXCLUDE_FROM_ALL
+            tests/test_vulkan_ray_ao_live.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_ray_ao_live PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_vulkan_ray_ao_live PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_ray_ao_live PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_ray_ao_live PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_authored_ray_live EXCLUDE_FROM_ALL
+            tests/test_authored_ray_live.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_authored_ray_live PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_authored_ray_live PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_authored_ray_live PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_authored_ray_live PROPERTIES LINKER_LANGUAGE CXX)
+        foreach(authored_target test_authored_contract0_live test_authored_contract0_1440_live test_authored_bounce_live test_authored_reflection_live)
+            set(authored_source tests/test_authored_contract0_live.c)
+            if(authored_target STREQUAL "test_authored_bounce_live")
+                set(authored_source tests/test_authored_bounce_live.c)
+            endif()
+            if(authored_target STREQUAL "test_authored_reflection_live")
+                set(authored_source tests/test_authored_reflection_live.c)
+            endif()
+            add_executable(${authored_target} EXCLUDE_FROM_ALL
+                ${authored_source} runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+            target_include_directories(${authored_target} PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+            target_link_libraries(${authored_target} PRIVATE ps3recomp_runtime m SDL2::SDL2)
+            if(WIN32)
+                target_link_libraries(${authored_target} PRIVATE
+                    winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+            endif()
+            set_target_properties(${authored_target} PROPERTIES LINKER_LANGUAGE CXX)
+        endforeach()
+        target_compile_definitions(test_authored_contract0_1440_live PRIVATE LIVE_FIXTURE_WIDTH=2560 LIVE_FIXTURE_HEIGHT=1440)
+        add_executable(test_scene_alpha_replay EXCLUDE_FROM_ALL
+            tests/test_scene_alpha_replay.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_scene_alpha_replay PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_scene_alpha_replay PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_scene_alpha_replay PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_scene_alpha_replay PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_scene_rgb_replay EXCLUDE_FROM_ALL
+            tests/test_scene_rgb_replay.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_scene_rgb_replay PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_scene_rgb_replay PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_scene_rgb_replay PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_scene_rgb_replay PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_scene_light_replay EXCLUDE_FROM_ALL
+            tests/test_scene_light_replay.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_scene_light_replay PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_scene_light_replay PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_scene_light_replay PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_scene_light_replay PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_pool_rgb_gpu EXCLUDE_FROM_ALL
+            tests/test_pool_rgb_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_pool_rgb_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_pool_rgb_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_pool_rgb_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_pool_rgb_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_terrain_rgb_gpu EXCLUDE_FROM_ALL
+            tests/test_terrain_rgb_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_terrain_rgb_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_terrain_rgb_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_terrain_rgb_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_terrain_rgb_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_gcm_wait_flip EXCLUDE_FROM_ALL tests/test_gcm_wait_flip.c tests/gcm_wait_link_stubs.c)
+        target_include_directories(test_gcm_wait_flip PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        target_compile_options(test_gcm_wait_flip PRIVATE -ffunction-sections -fdata-sections)
+        target_link_options(test_gcm_wait_flip PRIVATE -Wl,--gc-sections)
+        target_link_libraries(test_gcm_wait_flip PRIVATE m)
+
+        add_executable(test_rsx_draw_batches EXCLUDE_FROM_ALL libs/video/tests/test_draw_batches.c)
+        target_compile_options(test_rsx_draw_batches PRIVATE -Wall -Wextra -Werror)
+        add_executable(test_rsx_draw_engine EXCLUDE_FROM_ALL libs/video/tests/test_rsx_draw_engine.c)
+        target_include_directories(test_rsx_draw_engine PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_compile_options(test_rsx_draw_engine PRIVATE -UNDEBUG)
+        target_link_libraries(test_rsx_draw_engine PRIVATE ps3recomp_runtime m)
+        set_target_properties(test_rsx_draw_engine PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vulkan_msaa_gpu EXCLUDE_FROM_ALL
+            tests/test_vulkan_msaa_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_msaa_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_compile_options(test_vulkan_msaa_gpu PRIVATE -UNDEBUG)
+        target_link_libraries(test_vulkan_msaa_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_msaa_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_msaa_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vulkan_depth_argb_gpu EXCLUDE_FROM_ALL
+            tests/test_vulkan_depth_argb_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_depth_argb_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_compile_options(test_vulkan_depth_argb_gpu PRIVATE -UNDEBUG)
+        target_link_libraries(test_vulkan_depth_argb_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_depth_argb_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_depth_argb_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        if(PS3RECOMP_RSX_CACAO)
+            if(NOT WIN32)
+                add_executable(test_ao_composite_engine EXCLUDE_FROM_ALL tests/test_ao_composite_engine.c)
+                target_include_directories(test_ao_composite_engine PRIVATE
+                    "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/libs/video")
+                target_compile_options(test_ao_composite_engine PRIVATE -ffunction-sections -fdata-sections)
+                target_link_options(test_ao_composite_engine PRIVATE -Wl,--gc-sections)
+                target_link_libraries(test_ao_composite_engine PRIVATE m)
+            endif()
+            add_executable(test_vulkan_ao_gpu EXCLUDE_FROM_ALL
+                tests/test_vulkan_ao_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+            target_compile_definitions(test_vulkan_ao_gpu PRIVATE PS3RECOMP_RSX_CACAO)
+            target_include_directories(test_vulkan_ao_gpu PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/cacao/inc" "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+            target_link_libraries(test_vulkan_ao_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+            if(WIN32)
+                target_link_libraries(test_vulkan_ao_gpu PRIVATE
+                    winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+            endif()
+            set_target_properties(test_vulkan_ao_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        endif()
+        add_executable(test_rsx_resolution_scale EXCLUDE_FROM_ALL
+            libs/video/rsx_resolution_scale.c libs/video/tests/test_rsx_resolution_scale.c)
+        target_include_directories(test_rsx_resolution_scale PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/libs/video")
+        target_link_libraries(test_rsx_resolution_scale PRIVATE m)
+        add_executable(test_rsx_vulkan_anisotropy EXCLUDE_FROM_ALL
+            libs/video/rsx_vulkan_anisotropy.c libs/video/tests/test_rsx_vulkan_anisotropy.c)
+        target_include_directories(test_rsx_vulkan_anisotropy PRIVATE "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_compile_options(test_rsx_vulkan_anisotropy PRIVATE -Wall -Wextra -Werror)
+        target_link_libraries(test_rsx_vulkan_anisotropy PRIVATE m)
+        add_executable(test_rsx_vulkan_resolution EXCLUDE_FROM_ALL libs/video/tests/test_rsx_vulkan_resolution.c)
+        add_executable(test_rsx_display_geometry EXCLUDE_FROM_ALL libs/video/tests/test_rsx_display_geometry.c)
+        add_executable(test_rsx_folklore_hud EXCLUDE_FROM_ALL libs/video/tests/test_rsx_folklore_hud.c)
+        target_include_directories(test_rsx_folklore_hud PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_compile_options(test_rsx_folklore_hud PRIVATE -Wall -Wextra -Werror)
+        target_link_libraries(test_rsx_folklore_hud PRIVATE m)
+        add_executable(test_rsx_hud_geometry EXCLUDE_FROM_ALL libs/video/tests/test_rsx_hud_geometry.c)
+        target_compile_options(test_rsx_hud_geometry PRIVATE -Wall -Wextra -Werror)
+        target_link_libraries(test_rsx_hud_geometry PRIVATE m)
+        add_executable(test_dlss_motion_match EXCLUDE_FROM_ALL tests/test_dlss_motion_match.c)
+        target_compile_options(test_dlss_motion_match PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+        add_executable(test_dlss_motion_stats EXCLUDE_FROM_ALL tests/test_dlss_motion_stats.c)
+        target_compile_options(test_dlss_motion_stats PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+        add_executable(test_vulkan_display_gpu EXCLUDE_FROM_ALL
+            tests/test_vulkan_display_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_display_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_vulkan_display_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_display_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_display_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vulkan_resolution_gpu EXCLUDE_FROM_ALL
+            tests/test_vulkan_resolution_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_resolution_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_compile_options(test_vulkan_resolution_gpu PRIVATE -UNDEBUG)
+        target_link_libraries(test_vulkan_resolution_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_resolution_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_resolution_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vulkan_constant_shadow_gpu EXCLUDE_FROM_ALL
+            tests/test_vulkan_constant_shadow_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_constant_shadow_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_vulkan_constant_shadow_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_constant_shadow_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_constant_shadow_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vertex_decode_equivalence EXCLUDE_FROM_ALL
+            tests/test_vertex_decode_equivalence.c libs/video/rsx_vertex_compact.c libs/video/rsx_dispatch.c)
+        target_include_directories(test_vertex_decode_equivalence PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/libs/video")
+        target_compile_options(test_vertex_decode_equivalence PRIVATE -Wall -Wextra -Werror)
+        add_executable(test_vertex_batch_equivalence EXCLUDE_FROM_ALL
+            tests/test_vertex_batch_equivalence.c libs/video/rsx_vertex_compact.c libs/video/rsx_dispatch.c)
+        target_include_directories(test_vertex_batch_equivalence PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/libs/video")
+        target_compile_options(test_vertex_batch_equivalence PRIVATE -Wall -Wextra -Werror)
+        add_executable(test_vertex_remap_equivalence EXCLUDE_FROM_ALL
+            tests/test_vertex_remap_equivalence.c libs/video/rsx_vertex_compact.c libs/video/rsx_dispatch.c)
+        target_include_directories(test_vertex_remap_equivalence PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/libs/video)
+        target_compile_options(test_vertex_remap_equivalence PRIVATE -Wall -Wextra -Werror)
+        add_executable(test_texture_argb_equivalence EXCLUDE_FROM_ALL
+            tests/test_texture_argb_equivalence.c libs/video/rsx_texture_layout.c)
+        target_include_directories(test_texture_argb_equivalence PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/libs/video")
+        target_compile_options(test_texture_argb_equivalence PRIVATE -Wall -Wextra -Werror)
+        add_executable(test_texture_swizzle_equivalence EXCLUDE_FROM_ALL
+            tests/test_texture_swizzle_equivalence.c libs/video/rsx_texture_layout.c)
+        target_include_directories(test_texture_swizzle_equivalence PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/libs/video")
+        target_compile_options(test_texture_swizzle_equivalence PRIVATE -Wall -Wextra -Werror)
+        # Save PARAM.SFO: real PSF written; PSF and the old text form read. CPU only.
+        add_executable(test_savedata_param_sfo EXCLUDE_FROM_ALL
+            tests/test_savedata_param_sfo.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_savedata_param_sfo PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/libs/system")
+        target_compile_options(test_savedata_param_sfo PRIVATE -UNDEBUG)
+        target_link_libraries(test_savedata_param_sfo PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_savedata_param_sfo PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_savedata_param_sfo PROPERTIES LINKER_LANGUAGE CXX)
+        # sRGB output (SHADER_PACKER) and texture gamma post-passes. CPU only;
+        # `test_rsx_fp_gamma <dir>` also writes the patched programs for an
+        # HLSL compiler check.
+        add_executable(test_rsx_fp_gamma EXCLUDE_FROM_ALL
+            tests/test_rsx_fp_gamma.c libs/video/rsx_fp_decompiler.c)
+        target_include_directories(test_rsx_fp_gamma PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_compile_options(test_rsx_fp_gamma PRIVATE -UNDEBUG)
+        add_executable(test_vulkan_anisotropy_backend EXCLUDE_FROM_ALL
+            tests/test_vulkan_anisotropy_backend.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_anisotropy_backend PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_vulkan_anisotropy_backend PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_anisotropy_backend PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_anisotropy_backend PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vulkan_fxaa_gpu EXCLUDE_FROM_ALL
+            tests/test_vulkan_fxaa_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_fxaa_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_vulkan_fxaa_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_fxaa_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_fxaa_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vulkan_fsr1_gpu EXCLUDE_FROM_ALL
+            tests/test_vulkan_fsr1_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_fsr1_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_link_libraries(test_vulkan_fsr1_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_fsr1_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_fsr1_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vulkan_coverage_gpu EXCLUDE_FROM_ALL
+            tests/test_vulkan_coverage_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_coverage_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_compile_options(test_vulkan_coverage_gpu PRIVATE -UNDEBUG)
+        target_link_libraries(test_vulkan_coverage_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_coverage_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_coverage_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vulkan_shadow_gpu EXCLUDE_FROM_ALL
+            tests/test_vulkan_shadow_gpu.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_shadow_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_compile_options(test_vulkan_shadow_gpu PRIVATE -UNDEBUG)
+        target_link_libraries(test_vulkan_shadow_gpu PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_shadow_gpu PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_shadow_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_vulkan_position_replay EXCLUDE_FROM_ALL
+            tests/test_vulkan_position_replay.c runtime/host/host_stubs.c runtime/host/host_fixture_symbols.c)
+        target_include_directories(test_vulkan_position_replay PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${PS3RECOMP_VULKAN_INCLUDE_DIR}")
+        target_compile_options(test_vulkan_position_replay PRIVATE -UNDEBUG)
+        target_link_libraries(test_vulkan_position_replay PRIVATE ps3recomp_runtime m SDL2::SDL2)
+        if(WIN32)
+            target_link_libraries(test_vulkan_position_replay PRIVATE
+                winpthread dbghelp user32 gdi32 winmm d3d12 dxgi d3dcompiler dxguid)
+        endif()
+        set_target_properties(test_vulkan_position_replay PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_folklore_depth_clip_gpu EXCLUDE_FROM_ALL
+            tests/test_folklore_depth_clip_gpu.c runtime/host/host_stubs.c)
+        target_include_directories(test_folklore_depth_clip_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_compile_options(test_folklore_depth_clip_gpu PRIVATE -UNDEBUG)
+        target_link_libraries(test_folklore_depth_clip_gpu PRIVATE ps3recomp_runtime m)
+        set_target_properties(test_folklore_depth_clip_gpu PROPERTIES LINKER_LANGUAGE CXX)
+        add_executable(test_folklore_shader_window_gpu EXCLUDE_FROM_ALL
+            tests/test_folklore_shader_window_gpu.c runtime/host/host_stubs.c)
+        target_include_directories(test_folklore_shader_window_gpu PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video" "${CMAKE_CURRENT_SOURCE_DIR}/include")
+        target_compile_options(test_folklore_shader_window_gpu PRIVATE -UNDEBUG)
+        target_link_libraries(test_folklore_shader_window_gpu PRIVATE ps3recomp_runtime m)
+        set_target_properties(test_folklore_shader_window_gpu PROPERTIES LINKER_LANGUAGE CXX)
+    endif()
+
+    # Guest shader translation, decompilers -> HLSL -> MSL, with no GPU: the
+    # regression net for the Metal backend's shader path on every platform.
+    if(PS3RECOMP_MSL_TRANSLATION)
+        add_executable(test_shader_msl
+            libs/video/tests/test_shader_msl.c
+            libs/video/rsx_shader_msl.cpp
+            libs/video/rsx_vp_decompiler.c
+            libs/video/rsx_fp_decompiler.c
+        )
+        target_include_directories(test_shader_msl PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video"
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        )
+        target_link_libraries(test_shader_msl PRIVATE ps3recomp_msl_translation)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# PPU boot smoke title
+# ---------------------------------------------------------------------------
+# The one target that LINKS AND RUNS the PPU boot scaffold. runtime/ppu/ is the
+# game-agnostic boot path every port is built on, and nothing here has ever
+# built it: it #includes the lifter's per-game ppu_recomp.h, so
+# tools/check_ppu_scaffold.py compiles it against a stub header and stops
+# there. Compiling is not running, and on POSIX the loader, the NID bridge, the
+# lv2 syscalls, guest threads, the frame clock and the RSX backend had never
+# once run together.
+#
+# runtime/ppu/tests/smoke/ supplies what was missing: a hand-written program in
+# the lifter's ABI, and tools/make_smoke_elf.py writes both the PPU ELF it is
+# loaded from and the ppu_recomp.h it compiles against -- the header from
+# ppu_lifter.py's own HEADER_PREAMBLE, so the synthetic title cannot drift away
+# from the ABI a real one gets.
+#
+# The HLE NID table is generated exactly as a port generates it, so the smoke
+# title's firmware imports resolve through the same bridge a game's do.
+if(UNIX)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(NOT Python3_Interpreter_FOUND)
+        message(STATUS "  Boot smoke:   no python3; ps3recomp_boot_smoke not built")
+    else()
+        set(SMOKE_GEN "${CMAKE_CURRENT_BINARY_DIR}/smoke")
+
+        add_custom_command(
+            OUTPUT "${SMOKE_GEN}/smoke.elf" "${SMOKE_GEN}/ppu_recomp.h"
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tools/make_smoke_elf.py"
+                    --out    "${SMOKE_GEN}/smoke.elf"
+                    --header "${SMOKE_GEN}/ppu_recomp.h"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/make_smoke_elf.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ppu_lifter.py"
+            COMMENT "Generating the smoke title's image and ppu_recomp.h")
+
+        add_custom_command(
+            OUTPUT "${SMOKE_GEN}/ppu_hle_nids.cpp"
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_hle_nids.py"
+                    --out "${SMOKE_GEN}/ppu_hle_nids.cpp" --all
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_hle_nids.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tools/nid_database.py"
+            COMMENT "Generating the HLE NID -> handler table")
+
+        add_executable(ps3recomp_boot_smoke
+            runtime/ppu/tests/boot_main.cpp
+            runtime/ppu/tests/smoke/smoke_recomp.c
+            runtime/ppu/ppu_loader.cpp
+            runtime/ppu/ppu_hle.cpp
+            runtime/ppu/ppu_fs.cpp
+            runtime/ppu/ppu_fs_aio_engine.cpp
+            runtime/ppu/ppu_sysprx.cpp
+            "${SMOKE_GEN}/ppu_hle_nids.cpp"
+            "${SMOKE_GEN}/ppu_recomp.h"
+        )
+        target_include_directories(ps3recomp_boot_smoke PRIVATE
+            "${SMOKE_GEN}"                                  # the generated ppu_recomp.h
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ppu"
+            "${CMAKE_CURRENT_SOURCE_DIR}/runtime/spu"
+            "${CMAKE_CURRENT_SOURCE_DIR}/runtime/memory"
+            "${CMAKE_CURRENT_SOURCE_DIR}/runtime/syscalls"
+            "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform"
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/video"
+        )
+        target_link_libraries(ps3recomp_boot_smoke PRIVATE ps3recomp_runtime)
+        set_target_properties(ps3recomp_boot_smoke PROPERTIES LINKER_LANGUAGE CXX)
+
+        # Where the runnable image lands, so CI and a developer both say
+        #   ./build/ps3recomp_boot_smoke build/smoke/smoke.elf
+        message(STATUS "  Boot smoke:   ps3recomp_boot_smoke + smoke/smoke.elf")
+
+        # The same lift again, arranged the way a port's own tree arranges one:
+        # the generated ppu_recomp.h and the lifted source in one directory,
+        # which is what templates/project wants for -DRECOMP_DIR. The header is
+        # generated into the build tree and the source lives in the repository,
+        # so a directory holding both has to be made rather than pointed at.
+        #
+        # This is what lets CI build the project template against a real lift
+        # and run it -- the check that a port started from templates/project
+        # still boots, on a platform where it can be run.
+        set(SMOKE_LIFT "${SMOKE_GEN}/lift")
+        set(SMOKE_LIFT_SRC
+            "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ppu/tests/smoke/smoke_recomp.c")
+        add_custom_command(
+            OUTPUT "${SMOKE_LIFT}/ppu_recomp.h" "${SMOKE_LIFT}/smoke_recomp.c"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${SMOKE_LIFT}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${SMOKE_GEN}/ppu_recomp.h" "${SMOKE_LIFT}/ppu_recomp.h"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${SMOKE_LIFT_SRC}" "${SMOKE_LIFT}/smoke_recomp.c"
+            DEPENDS "${SMOKE_GEN}/ppu_recomp.h" "${SMOKE_LIFT_SRC}"
+            COMMENT "Staging the smoke title's lift as a RECOMP_DIR")
+        add_custom_target(ps3recomp_smoke_lift ALL
+            DEPENDS "${SMOKE_LIFT}/ppu_recomp.h" "${SMOKE_LIFT}/smoke_recomp.c")
+        message(STATUS "  Smoke lift:   smoke/lift (a RECOMP_DIR for templates/project)")
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# Install
+# ---------------------------------------------------------------------------
+install(TARGETS ps3recomp_runtime
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+)
+
+install(DIRECTORY include/ps3emu
+    DESTINATION include
+    FILES_MATCHING PATTERN "*.h"
+)
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+message(STATUS "")
+message(STATUS "ps3recomp runtime v${PROJECT_VERSION}")
+message(STATUS "  C compiler:   ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}")
+message(STATUS "  C++ compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "  Build type:   ${CMAKE_BUILD_TYPE}")
+message(STATUS "")

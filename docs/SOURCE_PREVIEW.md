@@ -1,5 +1,10 @@
 # Source preview, 20 October 2026
 
+These notes describe the earlier `source-preview-2026.10.20` release. Its
+archive is unchanged. The later [Owner Build Kit](OWNER_BUILD.md) resolves
+the missing builder inputs described below and has completed a fresh local
+ZIP installation; its separate validation limits still apply.
+
 This download contains current engine, controller and launcher source plus owner-local texture-generation tools. It does **not** contain a playable executable or a finished game installer.
 
 ## Included changes

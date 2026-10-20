@@ -594,7 +594,8 @@ def discover_capabilities(binary, binary_sha256=None):
             return fallback('The build record does not describe this exact executable.')
         source = Path(state['paths']['source'])
         declaration = source / CAPABILITY_FILE
-        recorded = state.get('build_source_snapshot', {}).get(str(declaration))
+        snapshot = state.get('build_source_snapshot', {})
+        recorded = snapshot.get('client/' + CAPABILITY_FILE) or snapshot.get(str(declaration))
         if not recorded:
             return fallback('The source this executable was built from declares no launcher capabilities.')
         data = _read_limited(declaration, CONFIG_LIMIT, 'Capability record')

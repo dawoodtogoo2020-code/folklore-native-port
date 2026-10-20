@@ -1,6 +1,6 @@
 """Regenerate the private, tested Folklore PPU overlay from an owned ELF.
 
-No translated instructions are shipped here. SDK Git history supplies the
+No translated instructions are shipped here. Pinned public source supplies the
 original translator; the current translator supplies the one recovered switch.
 Success means every output SHA256 matches the supplied acceptance manifest.
 """
@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from pinned_tools import read_pinned_tool
 
 ELF_SHA = '51a9eb16ceca3edfb7454b37a9e895f5a4e35bd515a40ae5b918f97c3a1b6c0e'
 BASE_REV = 'b199831f81be0b34fcc02f7f5d8434fefcc4ca94'
@@ -105,11 +106,7 @@ def execute(args):
         tools = output / 'baseline-tools'
         tools.mkdir()
         for name, expected in BASE_TOOLS.items():
-            installed = sdk / 'tools' / name
-            if sha(installed) == expected:
-                data = installed.read_bytes()
-            else:
-                data = subprocess.check_output(['git', '-C', str(sdk), 'show', f'{BASE_REV}:tools/{name}'])
+            data = read_pinned_tool(sdk, BASE_REV, name)
             if hashlib.sha256(data).hexdigest() != expected:
                 raise ValueError(f'Baseline SDK tool hash mismatch: {name}')
             (tools / name).write_bytes(data)

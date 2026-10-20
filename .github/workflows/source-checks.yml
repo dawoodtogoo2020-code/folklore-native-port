@@ -14,6 +14,23 @@ jobs:
       - run: python -B -m unittest discover -s tests
       - run: python -B -m unittest discover -s tools/textures
       - run: python -B -m unittest discover -s engine/tests -p test_analyze_dlss_motion.py
+      - run: python -B -m unittest discover -s client/tests -p test_source_snapshot.py
+      - run: python -B -m unittest discover -s client/tests -p test_pinned_tools.py
+      - run: python -B -m unittest discover -s client/tests -p test_prepare_owned_metadata.py
       - run: python -B engine/tests/test_dlss_projection.py --cc clang++ --out build/projection-test
       - run: python -B engine/tests/test_dlss_timing_readback.py --cc clang --out build/timing-test
       - run: clang -std=c11 -Wall -Wextra -Werror engine/tests/test_dlss_motion_stats.c -o build/motion-stats && build/motion-stats
+  windows-builder:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -B -m unittest discover -s client/tests -p test_source_snapshot.py
+      - run: python -B -m unittest discover -s client/tests -p test_pinned_tools.py
+      - run: python -B -m unittest discover -s client/tests -p test_prepare_owned_metadata.py
+      - run: python -B -m unittest discover -s client/tests -p test_build_owned_backup.py
+      - run: python -B -m unittest discover -s client/tests -p test_setup_owned_copy.py
+      - run: python -B -m unittest discover -s client/tests -p test_launcher.py
+      - run: python -B -c "import Install"

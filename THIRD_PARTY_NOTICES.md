@@ -13,6 +13,6 @@ This repository contains differently licensed components. Its root [LICENSE](LIC
 | libucontext patch | [ISC license](engine/third_party/libucontext/LICENSE); [provenance](engine/third_party/libucontext/manifest.json). External library source is a separate dependency |
 | Original standalone texture tools and standalone client tooling | Personal-use license in [LICENSE](LICENSE), except where a file or third-party license states otherwise |
 
-No Folklore game assets, game-derived executable, Sony firmware, model weights, NVIDIA DLSS DLL, FFmpeg binary or system toolchain is distributed in this source preview. Folklore and associated artwork/trademarks belong to their respective owners; this project is unofficial.
+No Folklore game assets, game-derived executable, Sony firmware, model weights, NVIDIA DLSS DLL, FFmpeg binary or system toolchain is distributed in this repository or the Owner Build Kit. Folklore and associated artwork/trademarks belong to their respective owners; this project is unofficial.
 
 The optional texture model is obtained separately from the [official Real-ESRGAN project](https://github.com/xinntao/Real-ESRGAN), whose repository publishes a [BSD 3-Clause license](https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE). That license does not grant redistribution rights to game-derived textures. PyTorch, Pillow, NumPy, Spandrel and system dependencies retain their own licenses.

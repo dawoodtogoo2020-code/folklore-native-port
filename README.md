@@ -2,14 +2,14 @@
 
 An experimental native port of Folklore for PlayStation 3, using game-specific static recompilation with [PS3Recomp](https://github.com/sp00nznet/ps3recomp).
 
-**The current download is a source preview, not a playable game installer.** It now includes current renderer and motion-control source, launcher source, and tools to generate texture packs from your own game archives. A complete public owner-local game builder is still pending.
+**An experimental Windows Owner Build Kit is available.** It generates and compiles the native executable from your own supported copy, then creates a launcher and separate save profile. A fresh ZIP installation has completed on the development PC. Clean-machine installation and gameplay acceptance of this exact kit remain pending.
 
 | I want to | Go here |
 | --- | --- |
-| Download the source preview | [GitHub Releases](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases) |
-| Find out whether I can install and play | [Installation status](INSTALL.md) |
+| Download the Owner Build Kit | [GitHub Releases](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases) |
+| Build and install from my own copy | [Installation instructions and limits](INSTALL.md) |
 | Generate textures from my own copy | [Texture tool instructions](tools/textures/README.md) |
-| Review changes and validation | [Source preview notes](docs/SOURCE_PREVIEW.md) |
+| Review changes and validation | [Owner build notes](docs/OWNER_BUILD.md), [earlier source preview](docs/SOURCE_PREVIEW.md) |
 | Read about motion-control support | [Motion controls](docs/MOTION_CONTROLS.md) |
 | See known engine problems | [Open issues and fix plans](docs/OPEN_ISSUES.md) |
 | Report a reproducible problem | [GitHub Issues](https://github.com/dawoodtogoo2020-code/folklore-native-port/issues) |
@@ -18,14 +18,17 @@ An experimental native port of Folklore for PlayStation 3, using game-specific s
 
 - `engine/`: the current PS3Recomp development fork, with Vulkan/hybrid rendering, DLSS diagnostics and projection fixes, texture replacement loading and motion-control backends.
 - `client/`: authored native boot integration, launcher, platform and development build tools.
+- `Install.py`: graphical owner-copy setup. The release kit also includes validated public CACAO shaders.
 - `tools/textures/`: archive extraction, heuristic classification, 2x/4x pack generation, resumable verification and synthetic tests. No game artwork is bundled.
 - `scripts/` and `tests/`: the earlier bounded PPU probe and frame-rate constant scanner, with independent synthetic tests.
 
-[The source manifest](docs/source-export.json) identifies exported revisions and file hashes. Private histories, captured game payloads and generated game executables are excluded. See [third-party notices](THIRD_PARTY_NOTICES.md) for component licensing.
+[The original export manifest](docs/source-export.json) identifies the earlier source-preview revisions and file hashes; subsequent changes are tracked in Git. The Owner Build Kit contains a separate package manifest. Private histories, captured game payloads and generated game executables are excluded. See [third-party notices](THIRD_PARTY_NOTICES.md) for component licensing.
 
 ## What works and what is pending
 
 Private Windows development builds have reached menus and gameplay, loaded saves, exercised ultrawide presentation and used locally generated texture packs. These observations do not establish a clean public installation or full campaign correctness.
+
+The owner-copy pipeline now derives bounded function/import metadata, reproduces 26 PPU and 27 SPU acceptance outputs, validates shader inputs and builds without Git or private development directories. Python and MSYS2 CLANG64 dependencies are installed separately. See [the build validation receipt](docs/owner-build-validation.json).
 
 The source adds physical-sensor paths for SDL controllers, original DS3/SXS and GameSir, plus an optional stick-flick mapping and Nintendo face-button positioning. Mocked tests pass; physical soul-capture acceptance remains open.
 

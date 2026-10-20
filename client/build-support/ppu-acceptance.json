@@ -1,0 +1,135 @@
+{
+  "elf_sha256": "51a9eb16ceca3edfb7454b37a9e895f5a4e35bd515a40ae5b918f97c3a1b6c0e",
+  "files": [
+    {
+      "name": "ppu_recomp.h",
+      "original_sha256": "fb09b97f97cee0540b514d4c7257ca46b27a4de4253962bbf2021539e7c9e301",
+      "overlay_sha256": "fb09b97f97cee0540b514d4c7257ca46b27a4de4253962bbf2021539e7c9e301"
+    },
+    {
+      "name": "ppu_recomp_000.cpp",
+      "original_sha256": "5327fcbddfea7e9c9d540ae84c4b787d469526d82531284beae68c1ea72bd028",
+      "overlay_sha256": "5327fcbddfea7e9c9d540ae84c4b787d469526d82531284beae68c1ea72bd028"
+    },
+    {
+      "name": "ppu_recomp_001.cpp",
+      "original_sha256": "9dbc4bf38043616b755c94df64fa8a6bb75a52580c22fbecbcf669e75da3dc06",
+      "overlay_sha256": "9dbc4bf38043616b755c94df64fa8a6bb75a52580c22fbecbcf669e75da3dc06"
+    },
+    {
+      "name": "ppu_recomp_002.cpp",
+      "original_sha256": "c5ef9d8da6f097c3ce0a6114b43c76faace92bc7d9503985b00381b5868e96b1",
+      "overlay_sha256": "c5ef9d8da6f097c3ce0a6114b43c76faace92bc7d9503985b00381b5868e96b1"
+    },
+    {
+      "name": "ppu_recomp_003.cpp",
+      "original_sha256": "6b047fb6cc4c44b5d069ecc889df8df99318aae3c00b5c607a89e7a98b8cc255",
+      "overlay_sha256": "6b047fb6cc4c44b5d069ecc889df8df99318aae3c00b5c607a89e7a98b8cc255"
+    },
+    {
+      "name": "ppu_recomp_004.cpp",
+      "original_sha256": "907bbf0efc430d10823b07d6aa62bba11282fcc102f46c1c05e42c8de70b9a21",
+      "overlay_sha256": "907bbf0efc430d10823b07d6aa62bba11282fcc102f46c1c05e42c8de70b9a21"
+    },
+    {
+      "name": "ppu_recomp_005.cpp",
+      "original_sha256": "61f393d644d4cc73116d2a43b2bbccf564ac66b80bc89cfbda52935a3bd41d65",
+      "overlay_sha256": "61f393d644d4cc73116d2a43b2bbccf564ac66b80bc89cfbda52935a3bd41d65"
+    },
+    {
+      "name": "ppu_recomp_006.cpp",
+      "original_sha256": "a98e40f9a2dd8907d603bb5385a396a391568fe8e010b976c9955009a78bf9fc",
+      "overlay_sha256": "a98e40f9a2dd8907d603bb5385a396a391568fe8e010b976c9955009a78bf9fc"
+    },
+    {
+      "name": "ppu_recomp_007.cpp",
+      "original_sha256": "7984d7291c63e39d36c8f1d59062ec1785d075f522278432daf7b1530c0bd5d0",
+      "overlay_sha256": "7984d7291c63e39d36c8f1d59062ec1785d075f522278432daf7b1530c0bd5d0"
+    },
+    {
+      "name": "ppu_recomp_008.cpp",
+      "original_sha256": "87129ccb51868bf58eed288b061fdcb29687977e0a93e03619f0e593dc63d481",
+      "overlay_sha256": "87129ccb51868bf58eed288b061fdcb29687977e0a93e03619f0e593dc63d481"
+    },
+    {
+      "name": "ppu_recomp_009.cpp",
+      "original_sha256": "1a93e116ed50d3031e9e61be058847111f9bf98a9129dcc87949551043ea8b91",
+      "overlay_sha256": "1a93e116ed50d3031e9e61be058847111f9bf98a9129dcc87949551043ea8b91"
+    },
+    {
+      "name": "ppu_recomp_010.cpp",
+      "original_sha256": "7845c18767d994119ca1a30998a7381c504b65e1479fc3253407937cc33c7521",
+      "overlay_sha256": "7845c18767d994119ca1a30998a7381c504b65e1479fc3253407937cc33c7521"
+    },
+    {
+      "name": "ppu_recomp_011.cpp",
+      "original_sha256": "ca9d30b960ebf93fae4c47942802b1e8209337272762440b112abb40537a9611",
+      "overlay_sha256": "ca9d30b960ebf93fae4c47942802b1e8209337272762440b112abb40537a9611"
+    },
+    {
+      "name": "ppu_recomp_012.cpp",
+      "original_sha256": "2714de0c15ae0c26df10969bb458c233117ce86e8d67c4689ecabc2345e58fbe",
+      "overlay_sha256": "2714de0c15ae0c26df10969bb458c233117ce86e8d67c4689ecabc2345e58fbe"
+    },
+    {
+      "name": "ppu_recomp_013.cpp",
+      "original_sha256": "73beac1c829dc526b6f8c20b88e409b162c0721d448e371db716a783d8da6e6c",
+      "overlay_sha256": "73beac1c829dc526b6f8c20b88e409b162c0721d448e371db716a783d8da6e6c"
+    },
+    {
+      "name": "ppu_recomp_014.cpp",
+      "original_sha256": "665e0a54bb474a2df8f541037dc12641b993dcfc058c174854e042d6dcbff449",
+      "overlay_sha256": "665e0a54bb474a2df8f541037dc12641b993dcfc058c174854e042d6dcbff449"
+    },
+    {
+      "name": "ppu_recomp_015.cpp",
+      "original_sha256": "d804a7778f23fe9a7aa713152bbe12220c4ca5eaf954a5c6f206ef739216476a",
+      "overlay_sha256": "e429d860219089b1dafec31b882a14dc146d06fcca82315fbc3bdb9f7ebc2f41"
+    },
+    {
+      "name": "ppu_recomp_016.cpp",
+      "original_sha256": "c7f2b4a4317271f1b3dfc24bb808918e5cba2175f79c50f068770de126c6ce75",
+      "overlay_sha256": "c7f2b4a4317271f1b3dfc24bb808918e5cba2175f79c50f068770de126c6ce75"
+    },
+    {
+      "name": "ppu_recomp_017.cpp",
+      "original_sha256": "c8c9f8cd8eba71b3d0247f984c00fda55a909d03a98d3b4297411c2ce527423b",
+      "overlay_sha256": "c8c9f8cd8eba71b3d0247f984c00fda55a909d03a98d3b4297411c2ce527423b"
+    },
+    {
+      "name": "ppu_recomp_018.cpp",
+      "original_sha256": "ad15067a31ec611abc6391f6e2512516f2d32d2a6589e82ddfe6c5417aff2bc7",
+      "overlay_sha256": "ad15067a31ec611abc6391f6e2512516f2d32d2a6589e82ddfe6c5417aff2bc7"
+    },
+    {
+      "name": "ppu_recomp_019.cpp",
+      "original_sha256": "c63301f10e477fb65bfc4603301cc230ed4ffc206074e31358284bee55706bfb",
+      "overlay_sha256": "c63301f10e477fb65bfc4603301cc230ed4ffc206074e31358284bee55706bfb"
+    },
+    {
+      "name": "ppu_recomp_020.cpp",
+      "original_sha256": "6bce0b0bca59c3e4bbdafafbe1e53770a93e05b61b34ba370765e18af6543792",
+      "overlay_sha256": "6bce0b0bca59c3e4bbdafafbe1e53770a93e05b61b34ba370765e18af6543792"
+    },
+    {
+      "name": "ppu_recomp_021.cpp",
+      "original_sha256": "a6fb49bec071778294dc705af951f6be0030c8c2f63da194c4429c0e90187a33",
+      "overlay_sha256": "a6fb49bec071778294dc705af951f6be0030c8c2f63da194c4429c0e90187a33"
+    },
+    {
+      "name": "ppu_recomp_022.cpp",
+      "original_sha256": "c016dde03f22bd6127df1c5e0cc4bf51afcf501f2f7a2fcec32f01c0007f9d0f",
+      "overlay_sha256": "c016dde03f22bd6127df1c5e0cc4bf51afcf501f2f7a2fcec32f01c0007f9d0f"
+    },
+    {
+      "name": "ppu_recomp_023.cpp",
+      "original_sha256": "b632b3959da651ae5bdff0193cd310b3a58d341c03cafbdb8bc81958fbb70fdd",
+      "overlay_sha256": "b632b3959da651ae5bdff0193cd310b3a58d341c03cafbdb8bc81958fbb70fdd"
+    },
+    {
+      "name": "ppu_recomp_024.cpp",
+      "original_sha256": "1279a4deb694629ddae16f2734461d4da60062d1e3d227462abe44def445f1a2",
+      "overlay_sha256": "1279a4deb694629ddae16f2734461d4da60062d1e3d227462abe44def445f1a2"
+    }
+  ]
+}

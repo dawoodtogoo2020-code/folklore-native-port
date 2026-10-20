@@ -1,6 +1,6 @@
 """Development-only Windows builder for the tested owned USA Folklore ELF.
 
-Prerequisites: Python, Git with recorded SDK history, Clang/Clang++, CMake,
+Prerequisites: Python, the public source archive, Clang/Clang++, CMake,
 Ninja, installed SDL2/Vulkan/FFmpeg development dependencies and prebuilt CACAO
 shaders. Supply all paths explicitly. No downloads, decryption or game launch.
 Generated source and executable contain private game-derived code and must not
@@ -17,6 +17,11 @@ from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
 import subprocess
 import sys
+
+# Support both command-line use and path-based import by existing tests.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pinned_tools import pinned_fingerprints
+from source_snapshot import snapshot_sources
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
@@ -94,6 +99,25 @@ def load(path):
     return json.loads(Path(path).read_text(encoding='utf-8-sig'))
 
 
+def shader_inputs(root):
+    manifest_path = safe_child(root, 'manifest.json')
+    manifest = load(manifest_path)
+    rows = manifest.get('shaders')
+    if manifest.get('passed') is not True or not isinstance(rows, list) or len(rows) != 66:
+        raise ValueError('CACAO requires a validated manifest with 66 shader headers')
+    result = {'manifest.json': sha(manifest_path)}
+    for row in rows:
+        name = row.get('header')
+        path = safe_child(root / 'PrecompiledShadersSPIRV', name, flat=True)
+        key = 'PrecompiledShadersSPIRV/' + name
+        if key in result or not path.is_file():
+            raise ValueError('Duplicate or missing CACAO header')
+        result[key] = sha(path)
+        if result[key] != row.get('header_sha256'):
+            raise ValueError('CACAO shader header hash differs: ' + name)
+    return result
+
+
 def validate(args):
     paths = {}
     for name in ('elf', 'sdk', 'metadata', 'ppu_manifest', 'spu_manifest', 'toolchain',
@@ -105,8 +129,6 @@ def validate(args):
             plain_output(path)
         paths[name] = path.resolve()
     output = paths['output']
-    if output.drive.casefold() != 'd:':
-        raise ValueError('Output must be on D:')
     validate_writable_children(output)
     for name, path in paths.items():
         if name == 'output':
@@ -125,6 +147,7 @@ def validate(args):
             raise ValueError('Missing native CMake source')
     if not (paths['shader_dir'] / 'manifest.json').is_file():
         raise ValueError('Missing CACAO shader manifest')
+    shader_inputs(paths['shader_dir'])
     if not (paths['metadata'] / 'EBOOT.functions.bounded.json').is_file():
         raise ValueError('Missing bounded PPU metadata')
     ppu, spu = load(paths['ppu_manifest']), load(paths['spu_manifest'])
@@ -143,32 +166,20 @@ def generation_inputs(paths):
     scripts = HERE
     files += [scripts / n for n in ('build_owned_backup.py', 'regenerate_ppu.py',
               'regenerate_spu.py', 'prepare_startup_aot.py', 'prepare_camera_aspect.py', 'prepare_frame_limiter.py',
-              'native-lane/recover_image03.py')]
+              'native-lane/recover_image03.py', 'pinned_tools.py', 'source_snapshot.py')]
     files += [paths['sdk'] / 'tools' / n for n in ('ppu_lifter.py', 'ppu_disasm.py',
                                                   'elf_parser.py', 'spu_lifter.py', 'spu_disasm.py')]
     for directory in ('include/ps3emu', 'runtime/spu', 'runtime/platform'):
         files += list((paths['sdk'] / directory).glob('*.h'))
     result = {str(p): sha(p) for p in sorted(set(files))}
-    # Historical translator blobs are real generation inputs even when the
-    # current checkout has newer tools. Hash Git's immutable blob bytes.
-    for revision, names in (
-        ('b199831f81be0b34fcc02f7f5d8434fefcc4ca94', ('ppu_lifter.py', 'ppu_disasm.py', 'elf_parser.py')),
-        ('d055c40ec4d38dab2b14906bd1a5ffa4d53437d5', ('spu_lifter.py',))):
-        for name in names:
-            data = subprocess.check_output(['git', '-C', str(paths['sdk']), 'show', f'{revision}:tools/{name}'])
-            result[f'git:{revision}:tools/{name}'] = hashlib.sha256(data).hexdigest()
+    result.update(pinned_fingerprints(paths['sdk']))
     result['python_executable'] = sha(sys.executable)
     result['python_version'] = sys.version
     return result
 
 
 def build_source_snapshot(paths):
-    result = {}
-    for root in (paths['sdk'], paths['source']):
-        names = subprocess.check_output(['git', '-C', str(root), 'ls-files', '-z',
-                                         '--cached', '--others', '--exclude-standard']).decode('utf-8').split('\0')
-        result.update({str(root / n): sha(root / n) for n in names if n and (root / n).is_file()})
-    return result
+    return snapshot_sources({'engine': paths['sdk'], 'client': paths['source']})
 
 
 def check_verified(root, kind):
@@ -282,12 +293,17 @@ def execute(args):
     state['build_source_snapshot'] = build_source_snapshot(paths)
     state['toolchain_sha256'] = {n: sha(paths['toolchain'] / n) for n in
                                  ('clang.exe', 'clang++.exe', 'cmake.exe', 'ninja.exe')}
-    state['shader_manifest_sha256'] = sha(paths['shader_dir'] / 'manifest.json')
+    state['shader_inputs'] = shader_inputs(paths['shader_dir'])
+    state['shader_manifest_sha256'] = state['shader_inputs']['manifest.json']
     run('configure', command)
     state['state'] = 'configured'
     save()
     run('build', [str(paths['toolchain'] / 'cmake.exe'), '--build', str(output / 'native-build'),
                   '--parallel', str(args.jobs)])
+    if state['build_source_snapshot'] != build_source_snapshot(paths):
+        raise ValueError('Source changed during compilation; rebuild from a stable source copy')
+    if state['shader_inputs'] != shader_inputs(paths['shader_dir']):
+        raise ValueError('CACAO shader inputs changed during compilation')
     binary = output / 'native-build/FolkloreBoot.exe'
     state.update(state='built', binary=str(binary), binary_sha256=sha(binary))
     save()

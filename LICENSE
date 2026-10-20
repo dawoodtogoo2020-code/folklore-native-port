@@ -7,7 +7,7 @@ All rights reserved except as expressly granted below.
 1. Scope
 
 This license applies only to original material owned by the maintainer in
-README.md, .recomp.json, scripts/leaf_probe.py, tests/test_leaf_probe.py and
+README.md, Install.py, .recomp.json, scripts/leaf_probe.py, tests/test_leaf_probe.py and
 tests/test_leaf_pipeline.py, original standalone Python files under
 tools/textures/ and client/launcher/, original standalone Python and JavaScript
 build/analysis files under client/scripts/, and their independent Python and

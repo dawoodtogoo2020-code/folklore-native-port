@@ -27,7 +27,14 @@ class BuilderConfig(unittest.TestCase):
             values[name].mkdir()
         values['elf'].write_bytes(b'synthetic')
         (values['metadata'] / 'EBOOT.functions.bounded.json').write_text('[]')
-        (values['shader_dir'] / 'manifest.json').write_text('{}')
+        headers = values['shader_dir'] / 'PrecompiledShadersSPIRV'
+        headers.mkdir()
+        rows = []
+        for i in range(66):
+            header = headers / f'{i}.h'
+            header.write_bytes(b'synthetic header')
+            rows.append({'header': header.name, 'header_sha256': builder.sha(header)})
+        (values['shader_dir'] / 'manifest.json').write_text(json.dumps({'passed': True, 'shaders': rows}))
         (values['source'] / 'native').mkdir()
         (values['source'] / 'native/CMakeLists.txt').write_text('')
         for name in ('clang.exe', 'clang++.exe', 'cmake.exe', 'ninja.exe'):
@@ -42,7 +49,7 @@ class BuilderConfig(unittest.TestCase):
         (scripts / 'native-lane').mkdir()
         for name in ('build_owned_backup.py', 'regenerate_ppu.py', 'regenerate_spu.py',
                      'prepare_startup_aot.py', 'prepare_camera_aspect.py', 'prepare_frame_limiter.py',
-                     'native-lane/recover_image03.py'):
+                     'native-lane/recover_image03.py', 'pinned_tools.py', 'source_snapshot.py'):
             (scripts / name).write_bytes(b'generator fixture')
         tools = self.args.sdk / 'tools'
         tools.mkdir()
@@ -55,14 +62,14 @@ class BuilderConfig(unittest.TestCase):
         scripts = self.generator_fixture()
         launcher = self.args.source / 'launcher.py'
         launcher.write_text('first')
-        with mock.patch.object(builder, 'HERE', scripts), mock.patch.object(builder.subprocess, 'check_output', return_value=b'historical blob'):
+        with mock.patch.object(builder, 'HERE', scripts), mock.patch.object(builder, 'pinned_fingerprints', return_value={'pinned:fixture': '0'*64}):
             before = builder.generation_inputs(vars(self.args))
             launcher.write_text('unrelated launcher improvement')
             self.assertEqual(before, builder.generation_inputs(vars(self.args)))
 
     def test_generator_edit_invalidates_fingerprint(self):
         scripts = self.generator_fixture()
-        with mock.patch.object(builder, 'HERE', scripts), mock.patch.object(builder.subprocess, 'check_output', return_value=b'historical blob'):
+        with mock.patch.object(builder, 'HERE', scripts), mock.patch.object(builder, 'pinned_fingerprints', return_value={'pinned:fixture': '0'*64}):
             before = builder.generation_inputs(vars(self.args))
             (scripts / 'regenerate_ppu.py').write_text('changed translator control')
             self.assertNotEqual(before, builder.generation_inputs(vars(self.args)))
@@ -88,8 +95,6 @@ class BuilderConfig(unittest.TestCase):
             hashing.assert_not_called()
 
     def test_valid_config_is_read_only(self):
-        if self.root.drive.casefold() != 'd:':
-            self.skipTest('D: output policy')
         paths = builder.validate(self.args)
         self.assertEqual(paths['output'], self.args.output)
         self.assertFalse(self.args.output.exists())
@@ -99,10 +104,9 @@ class BuilderConfig(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'absolute'):
             builder.validate(self.args)
 
-    def test_non_d_output_rejected(self):
-        self.args.output = Path('C:/private-build')
-        with self.assertRaisesRegex(ValueError, 'D:'):
-            builder.validate(self.args)
+    def test_portable_output_has_no_drive_letter_policy(self):
+        paths = builder.validate(self.args)
+        self.assertEqual(paths['output'], self.args.output)
 
     def test_output_reparse_attribute_rejected(self):
         self.args.output.mkdir()
@@ -176,22 +180,30 @@ class BuilderConfig(unittest.TestCase):
         self.assertEqual(sentinel.read_text(), 'preserve target')
 
     def test_overlap_rejected(self):
-        if self.root.drive.casefold() != 'd:':
-            self.skipTest('D: output policy')
         self.args.output = self.args.sdk / 'out'
         with self.assertRaisesRegex(ValueError, 'overlaps'):
             builder.validate(self.args)
 
     def test_missing_tool_rejected(self):
-        if self.root.drive.casefold() != 'd:':
-            self.skipTest('D: output policy')
         (self.args.toolchain / 'clang.exe').unlink()
         with self.assertRaisesRegex(ValueError, 'development tool'):
             builder.validate(self.args)
 
+    def test_shader_header_tampering_rejected(self):
+        header = self.args.shader_dir / 'PrecompiledShadersSPIRV/0.h'
+        header.write_text('modified')
+        with self.assertRaisesRegex(ValueError, 'shader header hash'):
+            builder.validate(self.args)
+
+    def test_unvalidated_shader_pack_rejected(self):
+        manifest = self.args.shader_dir / 'manifest.json'
+        data = json.loads(manifest.read_text())
+        data['passed'] = False
+        manifest.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, 'validated manifest'):
+            builder.validate(self.args)
+
     def test_manifest_traversal_rejected(self):
-        if self.root.drive.casefold() != 'd:':
-            self.skipTest('D: output policy')
         values = {f'cases/{i}': '0'*64 for i in range(26)}
         values['cases/../../escape'] = '0'*64
         self.args.spu_manifest.write_text(json.dumps({'files': values}))
@@ -199,8 +211,6 @@ class BuilderConfig(unittest.TestCase):
             builder.validate(self.args)
 
     def test_resume_input_drift_rejected_before_actions(self):
-        if self.root.drive.casefold() != 'd:':
-            self.skipTest('D: output policy')
         self.args.resume = True
         self.args.output.mkdir()
         (self.args.output / 'checkpoint.json').write_text(json.dumps({'state': 'prepared', 'inputs': {}}))

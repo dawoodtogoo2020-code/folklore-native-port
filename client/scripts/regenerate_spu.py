@@ -110,8 +110,8 @@ def execute(args):
         # image03 was lifted before FPSCR instrumentation; later extra jobs
         # used the current translator. Preserve that tested source provenance.
         revision = 'd055c40ec4d38dab2b14906bd1a5ffa4d53437d5'
-        old_lifter = subprocess.check_output(['git', '-C', str(sdk), 'show',
-                                               revision + ':tools/spu_lifter.py'])
+        from pinned_tools import read_pinned_tool
+        old_lifter = read_pinned_tool(sdk, revision, 'spu_lifter.py')
         old_hash = 'c14f224c3bb44fadea1a26493c3a36ef2a57d41389e6078e4bbec988a49c5bc2'
         if digest(old_lifter) != old_hash:
             raise ValueError('Historical SPU lifter hash mismatch')

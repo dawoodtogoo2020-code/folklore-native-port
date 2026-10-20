@@ -1,0 +1,50 @@
+{
+  "format": "folklore-owner-build-validation",
+  "version": 1,
+  "date": "2026-10-20",
+  "platform": "Windows x64",
+  "supported_copy": "USA BCUS98147 disc 1.00",
+  "metadata": {
+    "functions": 12894,
+    "imports": 167,
+    "accepted_hashes_match": true
+  },
+  "translation": {
+    "ppu_files": 26,
+    "spu_files": 27,
+    "all_accepted_hashes_match": true,
+    "private_git_required": false
+  },
+  "shaders": {
+    "cacao_headers": 66,
+    "spirv_validation_passed": true,
+    "archive_sha256": "99bf5aaff1216169b3d5de845197ca01c37d8c27cb17497bde8ef1b9640c5c52"
+  },
+  "fresh_zip_setup": {
+    "passed": true,
+    "git_metadata_present": false,
+    "result": "installed-local-untested",
+    "candidate_archive_sha256": "b58fcb88dbe50fa1d52a8e1f4a5a7e2beb021b3d59a0472eea4425bad0728e75",
+    "local_binary_sha256": "500e178de30f69dd30cd4f6894d968ee45afce00d3f64e5057e12e2766909940"
+  },
+  "launcher": {
+    "configuration_check_passed": true,
+    "gui_ready_to_play_observed": true,
+    "setup_gui_rendered": true
+  },
+  "tests": {
+    "focused_tests": 111,
+    "platform_skips": 4,
+    "notes": "Three filesystem capability skips and one Windows symlink capability skip. Profile path preflight added and tested after first archive installation."
+  },
+  "native_message_dialog_abi_probe_passed": true,
+  "game_runtime_tested": false,
+  "clean_machine_install_tested": false,
+  "physical_motion_capture_tested": false,
+  "limitations": [
+    "Fresh ZIP install used already installed dependencies on the development PC.",
+    "Other isolated Folklore controllers owned the GPU; this task did not interrupt them.",
+    "Build and launcher readiness do not establish gameplay, visual quality, performance or campaign correctness.",
+    "Game executable, generated game source, assets, firmware, saves and NVIDIA development DLL are not distributed."
+  ]
+}

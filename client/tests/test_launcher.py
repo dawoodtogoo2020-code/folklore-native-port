@@ -452,6 +452,17 @@ class CapabilityDiscovery(unittest.TestCase):
         self.assertEqual(caps.binary_sha256, hashlib.sha256(b'x').hexdigest())
         self.assertEqual(core.discover_capabilities('').origin, 'accepted-default')
 
+    def test_archive_relative_source_snapshot_uses_build_capabilities(self):
+        exe, declaration, checkpoint = write_build(self.root)
+        state = json.loads(checkpoint.read_text())
+        state['build_source_snapshot'] = {'client/native/launcher-capabilities.json':
+            hashlib.sha256(declaration.read_bytes()).hexdigest()}
+        checkpoint.write_text(json.dumps(state))
+        caps = core.discover_capabilities(exe)
+        self.assertEqual(caps.origin, 'build-record', caps.detail)
+        declaration.write_text(declaration.read_text() + ' ')
+        self.assertEqual(core.discover_capabilities(exe).origin, 'accepted-default')
+
     def test_display_record_with_bridge(self):
         exe, _, _ = write_build(self.root)
         caps = core.discover_capabilities(exe)

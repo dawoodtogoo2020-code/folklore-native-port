@@ -403,6 +403,7 @@ def process_pack(manifest: Path, output: Path, model: Path, *, limit: int | None
                 if image.size != (entry["width"], entry["height"]):
                     raise ValueError(f"source dimensions {image.size} differ from manifest")
                 if infer is None:
+                    set_cpu_limits(threads)
                     infer = load_model(model, device=device, precision=precision, guard=guard)
                 result = make_output(image, infer, tile, pad, strength, guard)
                 if guard is not None:

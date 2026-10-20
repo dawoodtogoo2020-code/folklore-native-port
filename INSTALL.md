@@ -1,8 +1,8 @@
 # Can I install and play it yet?
 
-**Short answer: not yet.** When a player package is ready, it will appear on the [Releases page](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases) with step-by-step instructions.
+**A playable game installer is not ready yet.** The [Releases page](https://github.com/dawoodtogoo2020-code/folklore-native-port/releases) now provides a source preview with the current renderer, motion controls and owner-local texture tools.
 
-The video shows a private Windows development build. This repository currently contains research and validation tools. **Code > Download ZIP will not give you the launcher or a playable game.**
+The video shows a private Windows development build. **Code > Download ZIP and the source-preview archive will not give you a playable game.** Use the [texture tool instructions](tools/textures/README.md) to generate supported replacement textures from your own archives. That command does not install the port. The [source-preview notes](docs/SOURCE_PREVIEW.md) describe the remaining builder requirements.
 
 Please do not follow the validation commands in the README as game-installation instructions.
 
@@ -26,7 +26,7 @@ The intended flow is: **choose your own files, build locally, choose display set
 
 ## Why the download is pending
 
-The development builder still needs SDK history, generation metadata, acceptance manifests, toolchains, dependencies and shader inputs that are absent from this public snapshot. The local game-derived executable cannot simply replace that builder in a public package. Packaging and component-license review remain open.
+The development builder still needs historical translator blobs, bounded function/import metadata, acceptance manifests, toolchains, dependencies and shader inputs that are not all present in this snapshot. A local game-derived executable cannot replace that builder in a public package. The next milestone is generating all required inputs from the owner's copy and validating setup, build and gameplay on a clean machine.
 
 ## Platforms and features
 

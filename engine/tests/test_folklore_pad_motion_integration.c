@@ -1,0 +1,50 @@
+#include "pad_sdl_fixture.h"
+int main(void)
+{
+    static uint8_t memory[0x20000];vm_base=memory;
+    CHECK(cellPadInit(1)==0);
+    CHECK(cellPadInfoSensorMode(0)==1);
+    CHECK(cellPadGetInfo2((CellPadInfo2*)(uintptr_t)0x11000)==0);
+    CHECK(vm_read32(0x11000+offsetof(CellPadInfo2,device_capability))&CELL_PAD_CAPABILITY_SENSOR_MODE);
+    CHECK(cellPadPeriphGetInfo((CellPadPeriphInfo*)(uintptr_t)0x12000)==0);
+    CHECK(vm_read32(0x12000+offsetof(CellPadPeriphInfo,device_capability))&CELL_PAD_CAPABILITY_SENSOR_MODE);
+    CHECK(cellPadGetCapabilityInfo(0,(CellPadCapabilityInfo*)(uintptr_t)0x13000)==0);
+    CHECK(vm_read32(0x13000)&CELL_PAD_CAPABILITY_SENSOR_MODE);
+    read_pad();CHECK(length()==8&&word(20)==0);
+    CHECK(word(CELL_PAD_BTN_OFFSET_ANALOG_LEFT_X)==128);
+    CHECK(pad_sdl_axis_to_u8(-32768)==0&&pad_sdl_axis_to_u8(32767)==255);
+    CHECK(cellPadSetSensorMode(0,1)==0);
+    read_pad();CHECK(length()==24&&word(1)==0x7c);
+    CHECK(word(20)==512&&word(21)==399&&word(22)==512&&word(23)==635);
+    CHECK(memory[0x10004+21*2]==1&&memory[0x10005+21*2]==0x8f);
+    fixture.read_fail=1;read_pad();CHECK(length()==8&&word(20)==0&&word(23)==0);
+    fixture.read_fail=0;fixture.ts=0;read_pad();CHECK(length()==24&&word(21)==399);
+    fixture.ts=1234;read_pad();CHECK(length()==24&&word(21)==399);
+    dialog=1;epoch=1;read_pad();CHECK(length()==0&&word(21)==0);
+    dialog=0;read_pad();read_pad();CHECK(length()==24&&word(21)==399);
+    CHECK(cellPadSetSensorMode(0,0)==0);read_pad();CHECK(length()==8&&word(20)==0);
+    CHECK(cellPadSetPortSetting(0,CELL_PAD_SETTING_SENSOR_ON|CELL_PAD_SETTING_PRESS_ON)==0);
+    read_pad();CHECK(length()==24&&word(23)==635);
+    fixture.disable_fail=1;
+    CHECK((u32)cellPadSetSensorMode(0,0)==CELL_PAD_ERROR_UNSUPPORTED_GAMEPAD);
+    read_pad();CHECK(length()==20&&word(20)==0);
+    CHECK(!(s_port_setting[0]&CELL_PAD_SETTING_SENSOR_ON)&&!s_sdl_motion[0].enabled);
+    fixture.disable_fail=0;CHECK(cellPadSetSensorMode(0,1)==0);
+    fixture.disable_fail=1;
+    CHECK((u32)cellPadSetPortSetting(0,CELL_PAD_SETTING_PRESS_ON)==CELL_PAD_ERROR_UNSUPPORTED_GAMEPAD);
+    read_pad();CHECK(length()==20&&word(21)==0);
+    CHECK(!(s_port_setting[0]&CELL_PAD_SETTING_SENSOR_ON));
+    fixture.disable_fail=0;CHECK(cellPadSetSensorMode(0,1)==0);
+    fixture.attached=0;read_pad();CHECK(length()!=24&&word(20)==0);
+    CHECK(word(CELL_PAD_BTN_OFFSET_ANALOG_LEFT_X)==128&&word(CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_Y)==128);
+    CHECK(cellPadInfoSensorMode(0)!=1);
+    CHECK(cellPadGetCapabilityInfo(0,(CellPadCapabilityInfo*)(uintptr_t)0x13000)==0);
+    CHECK(!(vm_read32(0x13000)&CELL_PAD_CAPABILITY_SENSOR_MODE));
+    fixture.attached=1;fixture.gyro[1]=-1.57079632679f;read_pad();CHECK(length()==24&&word(23)==389);
+    fixture.capable=0;read_pad();CHECK(length()==20&&word(23)==0);
+    CHECK(cellPadInfoSensorMode(0)==0);
+    CHECK((u32)cellPadSetSensorMode(0,1)==CELL_PAD_ERROR_UNSUPPORTED_GAMEPAD);
+    CHECK(cellPadEnd()==0);
+    printf("pad motion guest integration: %d checks, %d failures\n",checks,failures);
+    return failures?1:0;
+}

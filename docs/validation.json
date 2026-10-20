@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "source_preview": true,
+  "game_runtime_tested": false,
+  "clean_machine_install_tested": false,
+  "platform": "Windows x64",
+  "toolchain": "MSYS2 clang64 Clang; Vulkan 1.2 GLSL/SPIR-V offline validation",
+  "tests": [
+    {
+      "name": "root-python-tests",
+      "exit_code": 0,
+      "seconds": 0.328
+    },
+    {
+      "name": "motion-analyzer-tests",
+      "exit_code": 0,
+      "seconds": 0.484
+    },
+    {
+      "name": "dlss-projection",
+      "exit_code": 0,
+      "seconds": 5.312
+    },
+    {
+      "name": "motion-stats-compile",
+      "exit_code": 0,
+      "seconds": 0.344
+    },
+    {
+      "name": "motion-stats",
+      "exit_code": 0,
+      "seconds": 0.047
+    },
+    {
+      "name": "sdl-motion-compile",
+      "exit_code": 0,
+      "seconds": 1.875
+    },
+    {
+      "name": "sdl-motion",
+      "exit_code": 0,
+      "seconds": 0.047
+    },
+    {
+      "name": "stick-motion-compile",
+      "exit_code": 0,
+      "seconds": 0.328
+    },
+    {
+      "name": "stick-motion",
+      "exit_code": 0,
+      "seconds": 0.047
+    },
+    {
+      "name": "guest-motion-compile",
+      "exit_code": 0,
+      "seconds": 1.063
+    },
+    {
+      "name": "guest-motion",
+      "exit_code": 0,
+      "seconds": 0.578
+    },
+    {
+      "name": "guest-ds3-compile",
+      "exit_code": 0,
+      "seconds": 1.578
+    },
+    {
+      "name": "guest-ds3",
+      "exit_code": 0,
+      "seconds": 0.203
+    },
+    {
+      "name": "guest-g7-compile",
+      "exit_code": 0,
+      "seconds": 1.078
+    },
+    {
+      "name": "guest-g7",
+      "exit_code": 0,
+      "seconds": 0.125
+    },
+    {
+      "name": "ds3-backend-compile",
+      "exit_code": 0,
+      "seconds": 0.469
+    },
+    {
+      "name": "ds3-backend",
+      "exit_code": 0,
+      "seconds": 0.359
+    },
+    {
+      "name": "dlss-glsl",
+      "exit_code": 0,
+      "seconds": 0.235
+    },
+    {
+      "name": "dlss-spirv",
+      "exit_code": 0,
+      "seconds": 0.187
+    },
+    {
+      "name": "texture-python-tests-final",
+      "exit_code": 0,
+      "tests": 44
+    },
+    {
+      "name": "timing-readback",
+      "exit_code": 0,
+      "checks": 31
+    }
+  ],
+  "counts": {
+    "root_python": 38,
+    "texture_python": 44,
+    "dlss_analyzer": 37,
+    "projection_scalar": 40,
+    "projection_motion": 65,
+    "projection_fixture": 5,
+    "dlss_stats": 4692,
+    "timing_readback": 31,
+    "sdl_motion": 358,
+    "stick_motion": 444,
+    "guest_motion": 57,
+    "guest_ds3": 240,
+    "guest_g7": 271
+  },
+  "texture_inference": "Mocked deterministic image function; real synthetic archive extraction/classification/FTX4 writing, verification, resume and corruption rejection.",
+  "physical_controller_tested": false,
+  "gpu_game_session_run": false,
+  "provider": {
+    "texture_pipeline": "Claude Code, actual model claude-opus-5-5; controller review and regression amendments applied."
+  }
+}

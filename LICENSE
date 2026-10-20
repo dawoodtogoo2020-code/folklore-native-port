@@ -8,10 +8,17 @@ All rights reserved except as expressly granted below.
 
 This license applies only to original material owned by the maintainer in
 README.md, .recomp.json, scripts/leaf_probe.py, tests/test_leaf_probe.py and
-tests/test_leaf_pipeline.py, and to future original files explicitly marked
+tests/test_leaf_pipeline.py, original standalone Python files under
+tools/textures/ and client/launcher/, original standalone Python and JavaScript
+build/analysis files under client/scripts/, and their independent Python and
+JavaScript test files under client/tests/. It also applies to future original files explicitly marked
 as covered by this license (the "Material"). A separate license or notice
 on a file takes precedence for that file. This is a custom, source-available
 license, not an open-source license.
+
+This extension does not cover GPL-derived portions or the combined engine/native
+runtime, including engine/ and client/native/. Their applicable GPL and component
+licenses take precedence; no additional personal-use restriction is imposed.
 
 2. Personal use
 

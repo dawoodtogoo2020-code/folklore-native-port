@@ -33,9 +33,9 @@
     "setup_gui_rendered": true
   },
   "tests": {
-    "focused_tests": 111,
+    "focused_tests": 112,
     "platform_skips": 4,
-    "notes": "Three filesystem capability skips and one Windows symlink capability skip. Profile path preflight added and tested after first archive installation."
+    "notes": "Three filesystem capability skips and one Windows symlink capability skip. Profile path preflight and shell-free Python launcher added and tested after first archive installation."
   },
   "native_message_dialog_abi_probe_passed": true,
   "game_runtime_tested": false,

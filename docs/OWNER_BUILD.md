@@ -45,7 +45,8 @@ MSYS2 is a rolling distribution; later versions require fresh validation.
    profile. Build logs stay in the selected installation folder.
 4. Select **Open launcher**, then choose your settings and Play.
    Keep the source kit, MSYS2, Python, disc and firmware at their original paths.
-   Later, run `Launch.ps1` in the installation folder to reopen the launcher.
+   Later, run `Launch.py` with Python in the installation folder to reopen the
+   launcher. A `Launch.ps1` helper is also provided for PowerShell users.
 
 Setup defaults to two compiler processes. It never starts gameplay automatically.
 The default launcher configuration uses 30 FPS, original aspect and raster

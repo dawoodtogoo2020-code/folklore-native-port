@@ -177,7 +177,7 @@ class SetupOwnedCopyTests(unittest.TestCase):
         result = json.loads(out)
         self.assertEqual(result, {"phase": "installed-local-untested",
                                   "binary": str(ws / "build" / "native-build" / "FolkloreBoot.exe"),
-                                  "launcher": str(ws / "Launch.ps1"), "settings": str(ws / "settings.json"),
+                                  "launcher": str(ws / "Launch.py"), "settings": str(ws / "settings.json"),
                                   "runtime_tested": False})
         scripts, support = self.repo / "client" / "scripts", self.repo / "client" / "build-support"
         self.assertEqual(runner.calls[0][0], [
@@ -207,6 +207,19 @@ class SetupOwnedCopyTests(unittest.TestCase):
         self.assertEqual(state["bindings"]["repo"], str(self.repo))
         self.assertEqual([c["exit_code"] for c in state["commands"]], [0, 0])
         self.assertIs(state["runtime_tested"], False)
+
+    def test_python_launcher_preserves_paths_without_shell(self):
+        import runpy
+        entry = self.repo / "client/launcher/portable_entry.py"
+        settings = self.workspace / "settings.json"
+        script = setup.python_launch_script(self.prefix / "bin", entry, settings)
+        with mock.patch.object(runpy, "run_path") as run, mock.patch.object(sys, "argv", []), \
+             mock.patch.dict(os.environ), mock.patch.object(sys, "dont_write_bytecode", False):
+            exec(compile(script, "Launch.py", "exec"), {})
+            self.assertEqual(sys.argv, [str(entry), "--config", str(settings)])
+            self.assertTrue(os.environ["PATH"].startswith(str(self.prefix / "bin") + os.pathsep))
+            self.assertTrue(sys.dont_write_bytecode)
+            run.assert_called_once_with(str(entry), run_name="__main__")
 
     def test_launch_script_escaping(self):
         q = setup.ps_quote
@@ -388,7 +401,7 @@ class SetupOwnedCopyTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.outside(), before)
         self.assertEqual(set(os.listdir(self.workspace)), {
-            "setup-state.json", "settings.json", "Launch.ps1", "logs", "tmp", "metadata", "build", "profile"})
+            "setup-state.json", "settings.json", "Launch.py", "Launch.ps1", "logs", "tmp", "metadata", "build", "profile"})
         for command in self.state()["commands"]:
             log = Path(command["log"])
             self.assertEqual(log.parent, self.workspace / "logs")

@@ -141,6 +141,18 @@ def launch_script(bin_dir, entry, settings):
     ]) + "\n"
 
 
+def python_launch_script(bin_dir, entry, settings):
+    # Python literals preserve spaces, quotes and Unicode without a shell.
+    return "\n".join([
+        '"""Open this installation in the Folklore launcher."""',
+        "import os, runpy, sys",
+        "sys.dont_write_bytecode = True",
+        f"os.environ['PATH'] = {str(bin_dir)!r} + os.pathsep + os.environ.get('PATH', '')",
+        f"sys.argv = [{str(entry)!r}, '--config', {str(settings)!r}]",
+        f"runpy.run_path({str(entry)!r}, run_name='__main__')",
+    ]) + "\n"
+
+
 def _validate(args, repo, platform):
     if not platform.startswith("win"):
         raise SetupError("owner setup currently supports Windows only")
@@ -336,9 +348,10 @@ def _install(args, paths, state, snapshot, run):
     state.update(binary=str(binary), binary_sha256=digest)
     _set_phase(ws, state, "built")
     settings = _write_settings(ws, paths, binary, state)
-    launcher = ws / "Launch.ps1"
+    launcher = ws / "Launch.py"
     entry = repo / "client" / "launcher" / "portable_entry.py"
-    _write(ws, launcher, launch_script(bin_dir, entry, settings), encoding="utf-8-sig")
+    _write(ws, launcher, python_launch_script(bin_dir, entry, settings))
+    _write(ws, ws / "Launch.ps1", launch_script(bin_dir, entry, settings), encoding="utf-8-sig")
     state.update(settings=str(settings), launcher=str(launcher))
     _set_phase(ws, state, "installed-local-untested")
     return {"phase": state["phase"], "binary": str(binary), "launcher": str(launcher),

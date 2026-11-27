@@ -26,3 +26,8 @@ Windows baseline before trying newer engine code.
 - Acceptance still needs a reproducible Windows boot, save/load, combat and
   physical soul capture. Establish renderer correctness before any DLSS or
   path-tracing performance claim; validate Steam Deck and Android separately.
+
+Use the [Windows gameplay acceptance checklist](WINDOWS_GAMEPLAY_ACCEPTANCE.md)
+to record the exact build tested and separate physical capture from fallback.
+The October release and a build from this maintenance branch need independent
+receipts; a pass on one does not validate the other.

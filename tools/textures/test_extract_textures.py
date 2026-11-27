@@ -162,6 +162,8 @@ class ExtractTests(unittest.TestCase):
 
     def test_partial_checkpoint_resumes(self):
         write_pair(self.root, "etc", [("one.dds_", dds()), ("two.vtg_", b"x" + dds())])
+        write_pair(self.root, "model", [])
+        write_pair(self.root, "mt", [])
         real = extractor._checkpoint
         def interrupt(path, manifest):
             real(path, manifest)
@@ -177,6 +179,21 @@ class ExtractTests(unittest.TestCase):
         self.assertTrue(result["complete"])
         self.assertEqual(result["scan_counts"]["scanned_entries"], 2)
         self.assertEqual(len(result["textures"][0]["aliases"]), 2)
+
+    def test_corrupt_archive_stays_incomplete_until_fixed(self):
+        write_pair(self.root, "etc", [("one.dds_", dds())])
+        write_pair(self.root, "model", [])
+        write_pair(self.root, "mt", [])
+        (self.root / "mt.fht_").write_bytes(b"corrupt index")
+        result = extract(self.root, self.out)
+        self.assertEqual(len(result["textures"]), 1)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["scan_counts"]["coverage_failures"], 1)
+
+        write_pair(self.root, "mt", [])
+        repaired = extract(self.root, self.out)
+        self.assertTrue(repaired["complete"])
+        self.assertEqual(repaired["scan_counts"]["coverage_failures"], 0)
 
     def test_direct_png_and_unsupported_inventory(self):
         from io import BytesIO

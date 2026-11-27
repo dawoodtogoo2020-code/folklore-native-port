@@ -23,7 +23,7 @@ TARGETS = {
 }
 FLOAT_LOADS = {48: 'lfs', 49: 'lfsu', 50: 'lfd', 51: 'lfdu'}
 # Primary opcodes that never write a GPR; everything untracked pops rt and ra.
-NO_GPR_WRITE = {2, 3, 10, 11, 16, 36, 38, 44, 46, 48, 50, 52, 54, 59, 63}
+NO_GPR_WRITE = {2, 3, 10, 11, 16, 36, 38, 44, 48, 50, 52, 54, 59, 63}
 BLR, NOP = 0x4E800020, 0x60000000
 ADDR = 0xffffffff
 
@@ -152,8 +152,9 @@ def find_references(data, segs, hits, toc, window=16):
                 return v[0] if v and i - v[1] <= window else None
             if op in FLOAT_LOADS:
                 b = reg(ra) if ra else None
-                if b is not None and (b+simm) & ADDR in hits:
-                    hit = hits[(b+simm) & ADDR]
+                hit = hits.get((b+simm) & ADDR) if b is not None else None
+                width = 'float' if op in (48, 49) else 'double'
+                if hit is not None and hit['type'] == width:
                     refs.append(dict(address=base+i*4, word=f'{w:08x}', insn=FLOAT_LOADS[op],
                                      target_address=hit['address'], target=hit['target'], via='toc' if ra == 2 else 'register'))
                 if op in (49, 51):
@@ -178,6 +179,9 @@ def find_references(data, segs, hits, toc, window=16):
                     known.pop(rt, None)
                 else:
                     known[rt] = (int.from_bytes(ptr, 'big') & ADDR, i)
+            elif op == 46:  # lmw writes RT through r31, but only reads RA
+                for dest in range(rt, 32):
+                    known.pop(dest, None)
             elif op in (17, 18) or (op == 19 and (w >> 1) & 1023 in (16, 528)):
                 known.clear()
             elif op == 62:
@@ -190,6 +194,8 @@ def find_references(data, segs, hits, toc, window=16):
 
 
 def scan(data, tolerance=1e-5, toc=None, window=16):
+    if not 1 <= window <= 256:
+        raise ValueError('window must be between 1 and 256')
     entry, segs = load_segments(data)
     toc_source = 'argument'
     if toc is None:
@@ -204,7 +210,7 @@ def scan(data, tolerance=1e-5, toc=None, window=16):
             ref['function_source'] = sources[starts[k-1]]
     return dict(schema_version=1, scope='static leads only; not proof of frame-rate dependence',
                 sha256=hashlib.sha256(data).hexdigest(), toc=toc, toc_source=toc_source if toc is not None else None,
-                tolerance=tolerance, constants=sorted(hits.values(), key=lambda h: h['address']), references=refs)
+                tolerance=tolerance, window=window, constants=sorted(hits.values(), key=lambda h: h['address']), references=refs)
 
 
 def text_report(result):
@@ -235,8 +241,6 @@ def main(argv=None):
     p.add_argument('--json', action='store_true', help='print JSON instead of text')
     args = p.parse_args(argv)
     try:
-        if not 1 <= args.window <= 256:
-            raise ValueError('window must be between 1 and 256')
         result = scan(args.elf.resolve(strict=True).read_bytes(), args.tolerance, args.toc, args.window)
     except (OSError, ValueError) as exc:
         print(f'error: {exc}', file=sys.stderr)

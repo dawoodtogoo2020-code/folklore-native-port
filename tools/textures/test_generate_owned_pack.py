@@ -73,6 +73,25 @@ class RealPackPipelineTest(unittest.TestCase):
                 self.assertEqual(tree_hashes(inp), before)
 
 
+    def test_incomplete_archive_keeps_index_disabled_before_inference(self):
+        from test_extract_textures import dds, write_pair
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            inp, ws, model = root / "input", root / "output", root / "model.pth"
+            inp.mkdir()
+            model.write_bytes(b"unused model")
+            write_pair(inp, "etc", [("Artwork.dds_", dds())])
+            write_pair(inp, "model", [])
+            with mock.patch.object(upscale_pack, "load_model") as load:
+                with self.assertRaisesRegex(gop.PipelineError, "extraction incomplete"):
+                    gop.run_pipeline(inp, ws, model)
+                load.assert_not_called()
+            manifest = json.loads((ws / "catalog/manifest.json").read_text())
+            self.assertFalse(manifest["complete"])
+            self.assertEqual(manifest["scan_counts"]["coverage_failures"], 1)
+            self.assertEqual(json.loads((ws / "texture-packs/pack-index.json").read_text()), gop._index(False))
+
+
 class Fakes:
     """Stand-ins for extraction/classification/inference that check their own inputs."""
 
@@ -100,7 +119,7 @@ class Fakes:
             textures.append({"id": tid, "png": f"originals/{tid}.png", "archive": arc.name,
                              "payload": hashlib.sha256(b"payload:" + arc.name.encode()).hexdigest()})
         upscale_pack.atomic_json(output / "manifest.json", {"textures": textures})
-        return {"textures": len(textures)}
+        return {"textures": len(textures), "complete": True}
 
     def classify(self, manifest):
         data = json.loads(Path(manifest).read_text())
@@ -381,6 +400,15 @@ class OwnedTexturePipelineTest(unittest.TestCase):
             self.run_ws()
         self.assertEqual(sha(moved / "ledger.json"), ledger_before)
         self.assert_preserved()
+
+    def test_extra_pack_disables_tier_and_is_preserved(self):
+        gop.run_pipeline(self.inp, self.ws, self.model)
+        stale = self.ws / "texture-packs" / "high" / ("1" * 64 + "-f3-4x4.frp")
+        stale.write_bytes(b"stale pack")
+        with self.assertRaisesRegex(gop.PipelineError, "unverified high pack"):
+            gop.run_pipeline(self.inp, self.ws, self.model)
+        self.assert_index(self.ws, False)
+        self.assertEqual(stale.read_bytes(), b"stale pack")
 
     def test_corrupt_stale_or_missing_outputs_keep_index_disabled(self):
         def corrupt_pack(ws):

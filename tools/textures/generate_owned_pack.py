@@ -242,6 +242,12 @@ def _verify(ws, selected):
             if _norm(expected) in seen[tier]:
                 raise PipelineError(f"duplicate {tier} pack path {expected}")
             seen[tier].add(_norm(expected))
+    # The runtime opens deterministic filenames directly, not the generation ledger.
+    # Do not advertise a tier containing files that were not verified for this run.
+    for tier, paths in seen.items():
+        for candidate in (packs / tier).iterdir():
+            if candidate.suffix.lower() == ".frp" and _norm(candidate) not in paths:
+                raise PipelineError(f"unverified {tier} pack {candidate}; move it out of the tier or use a fresh workspace")
     return {tier: len(paths) for tier, paths in seen.items()}
 
 
@@ -276,7 +282,9 @@ def run_pipeline(input_root, workspace, model, device="cpu", precision="float32"
         folder.mkdir(exist_ok=True)
 
     _check_owned(ws)
-    extract_textures.extract(inp, catalog)
+    extraction = extract_textures.extract(inp, catalog)
+    if extraction.get("complete") is not True:
+        raise PipelineError("texture extraction incomplete; inspect catalog/manifest.json")
     _check_owned(ws)
     classified = classify_textures.classify_manifest(catalog / "manifest.json")
     if not isinstance(classified, dict) or not isinstance(classified.get("textures"), list):

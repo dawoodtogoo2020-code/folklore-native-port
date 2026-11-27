@@ -107,6 +107,29 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(fc.scan(data)['references'], [])
         self.assertEqual(len(fc.scan(data, window=32)['references']), 1)
 
+    def test_load_width_must_match_constant_encoding(self):
+        code = [dform(15, 9, 0, 2),
+                dform(50, 1, 9, 0), dform(49, 1, 9, 8),  # wrong width
+                dform(15, 9, 0, 2),
+                dform(48, 1, 9, 0), dform(51, 1, 9, 8)]  # correct widths
+        refs = fc.scan(elf(code, data_segment()))['references']
+        self.assertEqual([(r['address'], r['insn']) for r in refs],
+                         [(CODE_VA + 16, 'lfs'), (CODE_VA + 20, 'lfdu')])
+
+    def test_lmw_invalidates_all_destination_registers_but_not_base(self):
+        code = [dform(15, 9, 0, 2), dform(15, 12, 0, 2), dform(15, 31, 0, 2),
+                dform(46, 10, 9, 0),
+                dform(48, 1, 12, 0), dform(48, 1, 31, 0), dform(48, 1, 9, 0)]
+        refs = fc.scan(elf(code, data_segment()))['references']
+        self.assertEqual([r['address'] for r in refs], [CODE_VA + 24])
+
+    def test_report_window_is_recorded_and_validated(self):
+        self.assertEqual(fc.scan(self.data)['window'], 16)
+        self.assertEqual(fc.scan(self.data, window=1)['window'], 1)
+        for window in (0, 257):
+            with self.subTest(window=window), self.assertRaises(ValueError):
+                fc.scan(self.data, window=window)
+
     def test_unknown_toc_skips_toc_loads_but_keeps_lis_loads(self):
         data = elf(CODE, data_segment(), entry=0x90000)
         result = fc.scan(data)
@@ -139,9 +162,10 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'EBOOT.elf'
             path.write_bytes(elf(CODE, data_segment()))
-            code, out, _ = self.run_main('--elf', str(path), '--json')
+            code, out, _ = self.run_main('--elf', str(path), '--window', '32', '--json')
             self.assertEqual(code, 0)
             self.assertEqual(len(json.loads(out)['references']), 3)
+            self.assertEqual(json.loads(out)['window'], 32)
             code, out, _ = self.run_main('--elf', str(path))
             self.assertEqual(code, 0)
             self.assertIn('Functions to inspect first (1): func_00010000', out)

@@ -228,7 +228,8 @@ def _png_source(blob: bytes) -> tuple[Image.Image, int, int]:
 
 def _manifest(textures, counts, holds, rejects, index_hashes, source_stamps,
               suffixes, unsupported, archive_index, next_entry, complete):
-    return {"textures": list(textures.values()), "scan_counts": dict(counts),
+    return {"textures": list(textures.values()), "scan_counts": {**counts, "coverage_failures": counts["coverage_failures"]},
+            "coverage_version": 1,
             "holds": holds, "rejections": rejects,
             "input_index_hashes": index_hashes, "source_stamps": source_stamps,
             "skipped_suffix_counts": dict(suffixes),
@@ -288,9 +289,11 @@ def extract(input_root: str | Path, output: str | Path) -> dict:
         old_hashes[item.get("id")] = item.get("png_sha256")
 
     resume = (old.get("complete") is False and
+              old.get("coverage_version") == 1 and
               old.get("input_index_hashes") == index_hashes and
               old.get("source_stamps") == source_stamps and
-              isinstance(old.get("progress"), dict))
+              isinstance(old.get("progress"), dict) and
+              old["progress"].get("archive_index") != len(PAIRS))
     if resume:
         progress = old["progress"]
         archive_start, entry_start = progress.get("archive_index"), progress.get("next_entry")
@@ -317,6 +320,7 @@ def extract(input_root: str | Path, output: str | Path) -> dict:
         if archive_i < archive_start:
             continue
         if not _regular_file(container):
+            counts["coverage_failures"] += 1
             _event(holds, archive=stem, reason="container missing or symlink")
             _checkpoint(manifest_path, _manifest(textures, counts, holds, rejects, index_hashes,
                         source_stamps, suffixes, unsupported, archive_i + 1, 0, False))
@@ -324,6 +328,7 @@ def extract(input_root: str | Path, output: str | Path) -> dict:
         try:
             records = read_index(index, container.stat().st_size)
         except FormatError as error:
+            counts["coverage_failures"] += 1
             _event(holds, archive=stem, reason=str(error))
             _checkpoint(manifest_path, _manifest(textures, counts, holds, rejects, index_hashes,
                         source_stamps, suffixes, unsupported, archive_i + 1, 0, False))
@@ -345,12 +350,14 @@ def extract(input_root: str | Path, output: str | Path) -> dict:
                         "example": name})
                     detail["count"] += 1
                 elif size > ENTRY_LIMIT:
+                    counts["coverage_failures"] += 1
                     _event(holds, archive=stem, entry=name, reason="entry exceeds 128 MiB")
                     counts["oversize_entries"] += 1
                 else:
                     source.seek(entry_offset)
                     blob = source.read(size)
                     if len(blob) != size:
+                        counts["coverage_failures"] += 1
                         _event(holds, archive=stem, entry=name, reason="entry read truncated")
                     else:
                         counts["scanned_entries"] += 1
@@ -396,6 +403,7 @@ def extract(input_root: str | Path, output: str | Path) -> dict:
                             for dds_offset in _candidate_offsets(blob):
                                 counts["signatures"] += 1
                                 if counts["signatures"] > 100000:
+                                    counts["coverage_failures"] += 1
                                     _event(holds, archive=stem, entry=name, reason="signature scan limit reached")
                                     break
                                 child_name, limit = None, size
@@ -445,7 +453,8 @@ def extract(input_root: str | Path, output: str | Path) -> dict:
         _checkpoint(manifest_path, _manifest(textures, counts, holds, rejects, index_hashes,
                     source_stamps, suffixes, unsupported, archive_i + 1, 0, False))
     final = _manifest(textures, counts, holds, rejects, index_hashes,
-                      source_stamps, suffixes, unsupported, len(PAIRS), 0, True)
+                      source_stamps, suffixes, unsupported, len(PAIRS), 0,
+                      not counts["coverage_failures"])
     _checkpoint(manifest_path, final)
     return final
 
@@ -459,8 +468,9 @@ def main() -> int:
         result = extract(args.input_root, args.output)
     except FormatError as error:
         parser.error(str(error))
-    print(json.dumps({"textures": len(result["textures"]), "scanned_entries": result["scan_counts"].get("scanned_entries", 0), "holds": len(result["holds"]), "rejections": len(result["rejections"])}))
-    return 0
+    print(json.dumps({"textures": len(result["textures"]), "scanned_entries": result["scan_counts"].get("scanned_entries", 0), "holds": len(result["holds"]), "rejections": len(result["rejections"]), "complete": result["complete"],
+                      "coverage_failures": result["scan_counts"]["coverage_failures"]}))
+    return 0 if result["complete"] else 1
 
 
 if __name__ == "__main__":
